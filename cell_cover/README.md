@@ -1,6 +1,6 @@
 # Cell 杂志封面生成器
 
-这个工具集用于生成 Cell Reports Medicine 杂志封面的 Midjourney 提示词，并通过 API 获取生成的图像。
+这个工具集用于生成 Cell Reports Medicine 杂志封面的 Midjourney 提示词，并通过 TTAPI 获取生成的图像。
 
 ## 目录
 
@@ -11,7 +11,10 @@
   - [创意概念](#创意概念)
   - [生成提示词](#生成提示词)
   - [生成图像](#生成图像)
+  - [查询任务状态](#查询任务状态)
+  - [异步模式](#异步模式)
 - [配置文件](#配置文件)
+- [图像元数据](#图像元数据)
 - [图像后处理](#图像后处理)
 - [提交流程](#提交流程)
 - [常见问题](#常见问题)
@@ -24,6 +27,10 @@
 2. **多样化变体**：每个创意概念有多个变体可供选择
 3. **灵活配置**：可自定义宽高比、质量和 Midjourney 版本
 4. **API 集成**：通过 TTAPI 直接生成图像并下载到本地
+5. **多种生成模式**：支持 relax、fast 和 turbo 三种生成模式
+6. **异步生成**：支持通过 Webhook 异步接收生成结果
+7. **元数据管理**：自动保存图像元数据，便于后续查询和管理
+8. **日志记录**：详细的日志记录，便于排查问题
 
 ## 安装与设置
 
@@ -44,11 +51,22 @@ chmod +x setup.sh
 ./setup.sh
 ```
 
-3. 设置 API 配置（如果需要通过 API 生成图像）：
+3. 设置 TTAPI API 密钥：
+
+```bash
+# 方法一：设置环境变量
+export TTAPI_API_KEY="your_api_key_here"
+
+# 方法二：创建 .env 文件
+echo "TTAPI_API_KEY=your_api_key_here" > cell_cover/.env
+```
+
+4. 确保脚本有执行权限：
 
 ```bash
 cd cell_cover
-python3 generate_cover.py --setup
+chmod +x generate_cover.sh
+chmod +x generate_cover.py
 ```
 
 ## 使用指南
@@ -104,21 +122,71 @@ chmod +x generate_cover.sh  # 确保脚本有执行权限
 
 ### 生成图像
 
-如果您已经设置了 API 配置，可以直接生成图像：
+使用 `create` 命令生成图像：
 
 ```bash
-python3 generate_image.py --concept concept_a --variation scientific
+# 基本用法
+./generate_cover.sh create concept_a
+
+# 指定变体
+./generate_cover.sh create concept_a --variation scientific
+
+# 指定生成模式
+./generate_cover.sh create concept_a --variation dramatic --mode relax
+
+# 使用其他参数
+./generate_cover.sh create concept_a --variation vibrant --aspect portrait --quality high --version v6 --save-prompt
 ```
 
-使用自定义提示词生成图像：
+生成模式说明：
+
+- **relax**：质量最高，生成时间约 120 秒
+- **fast**：平衡质量和速度，生成时间约 60 秒（默认）
+- **turbo**：速度最快，生成时间约 30 秒
+
+### 查询任务状态
+
+使用 `check` 命令查询任务状态：
 
 ```bash
-python3 generate_image.py --prompt "Your custom prompt here"
+./generate_cover.sh check <job_id>
 ```
+
+任务 ID 在提交任务时会返回。
+
+### 异步模式
+
+当生成时间较长时，建议使用异步模式：
+
+```bash
+./generate_cover.sh create concept_a --hook-url https://your-webhook.com/callback --notify-id your-custom-id
+```
+
+当任务完成时，TTAPI 将发送回调请求到指定的 Webhook URL。
+
+如果您没有 Webhook 服务，可以使用第三方服务如 webhook.site 或 requestbin.com 进行测试。
 
 ## 配置文件
 
 所有提示词模板和设置都存储在 `prompts_config.json` 文件中。您可以编辑此文件来添加新的创意概念或修改现有的提示词。
+
+## 图像元数据
+
+生成的图像元数据存储在 `metadata/images_metadata.json` 文件中。每个图像的元数据包含以下信息：
+
+- **id**: 唯一标识符
+- **job_id**: TTAPI 任务 ID
+- **filename**: 图像文件名
+- **filepath**: 图像文件路径
+- **url**: 原始图像 URL
+- **prompt**: 生成图像的提示词
+- **concept**: 使用的创意概念
+- **variation**: 使用的变体（如果有）
+- **components**: 可用的操作组件（如 upsample1、variation1 等）
+- **seed**: 生成图像的种子值（如果有）
+- **created_at**: 创建时间
+
+这些元数据可以用于后续的图像管理和操作。
 
 ### 创意概念
 

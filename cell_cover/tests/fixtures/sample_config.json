@@ -1,0 +1,30 @@
+{
+  "concepts": {
+    "concept_a": {
+      "name": "Test Concept A",
+      "description": "A test concept for unit testing",
+      "midjourney_prompt": "test prompt base",
+      "variations": {
+        "varA": "with variation A",
+        "varB": "plus variation B"
+      }
+    },
+    "concept_b": {
+        "name": "Test Concept B",
+        "description": "Another concept without variations",
+        "midjourney_prompt": "prompt for concept B"
+    }
+  },
+  "aspect_ratios": {
+    "cell_cover": "--ar 8:11",
+    "square": "--ar 1:1"
+  },
+  "quality_settings": {
+    "high": "--q 1",
+    "low": "--q 0.5"
+  },
+  "style_versions": {
+    "v6": "--v 6",
+    "v5.2": "--v 5.2"
+  }
+} 
