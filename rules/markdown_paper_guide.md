@@ -1,0 +1,270 @@
+# Markdown学术论文格式指南
+
+## 基本结构
+
+一篇格式良好的Markdown学术论文应包含以下基本结构：
+
+```markdown
+---
+title: "论文标题"
+author: "作者姓名"
+date: "日期"
+abstract: "摘要内容"
+keywords: [关键词1, 关键词2, 关键词3]
+---
+
+# 引言
+
+# 文献综述
+
+# 方法
+
+# 结果
+
+# 讨论
+
+# 结论
+
+# 参考文献
+```
+
+## YAML元数据
+
+在Markdown文件的开头，使用YAML格式的元数据块来定义论文的基本信息：
+
+```yaml
+---
+title: "论文标题"
+author: "作者姓名"
+date: "2023年12月15日"
+abstract: "这里是论文摘要，简要概述研究目的、方法、结果和结论。"
+keywords: [关键词1, 关键词2, 关键词3]
+bibliography: references.bib
+csl: chinese-gb7714-2015-numeric.csl
+header-includes:
+  - \usepackage{xeCJK}
+  - \usepackage{zhnumber}
+  - \usepackage{hyperref}
+  - \hypersetup{colorlinks=true, linkcolor=blue, urlcolor=blue, citecolor=blue}
+CJKmainfont: "Songti SC"
+CJKoptions: BoldFont=STHeiti,ItalicFont=STKaiti
+---
+```
+
+## 标题和章节
+
+使用不同级别的标题来组织论文结构：
+
+```markdown
+# 一级标题（章）
+
+## 二级标题（节）
+
+### 三级标题（小节）
+
+#### 四级标题（段落）
+```
+
+## 文本格式
+
+- **粗体**：使用双星号 `**粗体文本**`
+- *斜体*：使用单星号 `*斜体文本*`
+- ~~删除线~~：使用双波浪线 `~~删除线文本~~`
+- 上标^2^：使用 `^2^`
+- 下标~2~：使用 `~2~`
+
+## 引用
+
+使用大于号 `>` 创建引用块：
+
+```markdown
+> 这是一个引用块。
+> 
+> 可以包含多个段落。
+```
+
+## 列表
+
+无序列表：
+
+```markdown
+- 第一项
+- 第二项
+  - 子项
+  - 子项
+- 第三项
+```
+
+有序列表：
+
+```markdown
+1. 第一步
+2. 第二步
+   1. 子步骤
+   2. 子步骤
+3. 第三步
+```
+
+## 表格
+
+使用管道符号 `|` 创建表格：
+
+```markdown
+| 列1 | 列2 | 列3 |
+|-----|-----|-----|
+| 单元格1 | 单元格2 | 单元格3 |
+| 单元格4 | 单元格5 | 单元格6 |
+```
+
+对齐方式：
+
+```markdown
+| 左对齐 | 居中对齐 | 右对齐 |
+|:------|:-------:|------:|
+| 文本 | 文本 | 文本 |
+```
+
+## 图片
+
+插入图片：
+
+```markdown
+![图片说明](图片路径)
+
+![图1：实验设置](images/experiment_setup.png)
+```
+
+## 数学公式
+
+行内公式：
+
+```markdown
+这是一个行内公式 $E=mc^2$
+```
+
+独立公式：
+
+```markdown
+$$
+\frac{d}{dx}e^x = e^x
+$$
+```
+
+## 代码
+
+行内代码：
+
+```markdown
+使用 `print("Hello, World!")` 输出文本
+```
+
+代码块：
+
+````markdown
+```python
+def hello_world():
+    print("Hello, World!")
+```
+````
+
+## 脚注
+
+添加脚注：
+
+```markdown
+这是一个带有脚注的文本[^1]。
+
+[^1]: 这是脚注内容。
+```
+
+## 引用文献
+
+在文本中引用参考文献：
+
+```markdown
+根据最近的研究 [@smith2023]，...
+
+@smith2023 指出...
+
+多个引用 [@smith2023; @jones2022]
+```
+
+## 参考文献
+
+在文档末尾添加参考文献部分：
+
+```markdown
+# 参考文献
+
+::: {#refs}
+:::
+```
+
+## 附录
+
+在参考文献之后添加附录：
+
+```markdown
+# 附录
+
+## 附录A：补充材料
+
+## 附录B：数据表
+```
+
+## 中文论文特殊注意事项
+
+1. **字体设置**：确保在YAML头部设置适当的中文字体
+   ```yaml
+   CJKmainfont: "Songti SC"
+   CJKoptions: BoldFont=STHeiti,ItalicFont=STKaiti
+   ```
+
+2. **LaTeX包**：包含必要的中文支持包
+   ```yaml
+   header-includes:
+     - \usepackage{xeCJK}
+     - \usepackage{zhnumber}
+   ```
+
+3. **引用样式**：使用适合中文的引用样式
+   ```yaml
+   csl: chinese-gb7714-2015-numeric.csl
+   ```
+
+4. **标点符号**：使用全角标点符号，如：。，；：""（）
+
+5. **日期格式**：使用中文日期格式，如"2023年12月15日"
+
+## 转换为PDF的命令
+
+使用以下命令将Markdown文件转换为PDF：
+
+```bash
+pandoc paper.md -o paper.pdf \
+  --from=markdown+tex_math_single_backslash \
+  --to=pdf \
+  --pdf-engine=xelatex \
+  --standalone \
+  --bibliography=references.bib \
+  --citeproc
+```
+
+或者使用我们的自动化脚本：
+
+```bash
+./md2pdf.sh paper.md
+```
+
+## 最佳实践
+
+1. **保持简洁**：Markdown的优势在于简洁明了，避免过度格式化
+2. **模块化**：将大型文档分成多个文件，最后合并
+3. **版本控制**：使用Git等工具进行版本控制
+4. **备份**：定期备份您的工作
+5. **预览**：使用Markdown预览工具实时查看效果
+6. **一致性**：保持格式的一致性，特别是在多人协作时
+7. **引用管理**：使用专门的引用管理工具（如Zotero）生成BibTeX文件
+8. **图表管理**：为图表创建单独的目录，并使用有意义的文件名
+9. **元数据完整**：确保YAML头部包含所有必要的元数据
+10. **检查链接**：确保所有链接和引用都是有效的
