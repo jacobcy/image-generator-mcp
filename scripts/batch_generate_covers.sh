@@ -132,9 +132,9 @@ echo "$concept_keys" | while IFS= read -r concept; do
     # --- 构建并执行命令 (每个概念生成 2 个组合) --- #
     commands_to_run=()
     # 组合 1: Var1 + Style1
-    commands_to_run+=("python -m $MODULE_PATH create -c $concept -var \"$var1\" --style \"$style1\"")
+    commands_to_run+=("python -m $MODULE_PATH create -c $concept -var "$var1" --style "$style1"")
     # 组合 2: Var2 + Style2
-    commands_to_run+=("python -m $MODULE_PATH create -c $concept -var \"$var2\" --style \"$style2\"")
+    commands_to_run+=("python -m $MODULE_PATH create -c $concept -var "$var2" --style "$style2"")
 
     for cmd in "${commands_to_run[@]}"; do
         echo "\n  即将执行: $cmd"

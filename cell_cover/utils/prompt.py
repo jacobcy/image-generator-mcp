@@ -26,26 +26,27 @@ except ImportError:
     pyperclip = DummyPyperclip()
 
 
-def generate_prompt_text(logger, config, concept_key, variation_keys=None, global_style_keys=None, aspect_ratio="cell_cover", quality="high", version="v6"):
-    """生成用于API的Midjourney提示词文本和参数字典
+def generate_prompt_text(logger, config, concept_key, variation_key=None, global_style_key=None, aspect_ratio="cell_cover", quality="high", version="v6", cref_url=None):
+    """生成完整的 Midjourney 提示词文本。
 
     Args:
-        logger: The logging object.
-        config: The loaded configuration dictionary.
-        concept_key: Key of the concept to use.
-        variation_keys: List of concept-specific variation keys (optional).
-        global_style_keys: List of global style keys (optional).
-        aspect_ratio: Key for aspect ratio setting.
-        quality: Key for quality setting.
-        version: Key for Midjourney version setting.
+        logger: 日志记录器。
+        config: 配置字典。
+        concept_key: 创意概念的键。
+        variation_key: 变体的键 (可选, 单个)。
+        global_style_key: 全局风格修饰词的键 (可选, 单个)。
+        aspect_ratio: 宽高比设置的键 (默认: cell_cover)。
+        quality: 质量设置的键 (默认: high)。
+        version: Midjourney 版本的键 (默认: v6)。
+        cref_url: 图像参考 URL (可选，仅 v6/v7 支持)。
 
     Returns:
-        成功时返回字典，包含 prompt 字符串以及解析出的参数值 (variations 是列表)
-        失败时返回 None
+        dict: 包含生成的提示词和其他相关信息的字典，如果生成失败则返回 None。
     """
-    variation_log_str = '-'.join(variation_keys) if variation_keys else 'None'
-    style_log_str = '-'.join(global_style_keys) if global_style_keys else 'None'
+    variation_log_str = variation_key if variation_key else 'None'
+    style_log_str = global_style_key if global_style_key else 'None'
     logger.info(f"正在生成提示词，概念: {concept_key}, 变体: {variation_log_str}, 全局风格: {style_log_str}")
+    print(f"正在生成提示词的步骤...")
 
     # Initialize result dictionary
     result = {
@@ -54,8 +55,8 @@ def generate_prompt_text(logger, config, concept_key, variation_keys=None, globa
         "quality": None,
         "version": None,
         "concept": concept_key,
-        "variations": variation_keys or [],
-        "global_styles": global_style_keys or [] # Store applied global styles
+        "variations": [variation_key] if variation_key else [],
+        "global_styles": [global_style_key] if global_style_key else []
     }
 
     concepts = config.get("concepts", {})
@@ -74,57 +75,58 @@ def generate_prompt_text(logger, config, concept_key, variation_keys=None, globa
         return None
 
     # Start building prompt parts
-    current_prompt_parts = [base_prompt]
-    logger.debug(f"基础提示词: {base_prompt}")
+    prompt_parts = base_prompt.split('--')
+    main_description = prompt_parts[0].strip()
+    technical_params_from_base = [f"--{p.strip()}" for p in prompt_parts[1:] if p.strip()]
+    logger.debug(f"基础描述部分: {main_description}")
+    logger.debug(f"基础提示词中的技术参数: {technical_params_from_base}")
 
-    # Add concept-specific variation modifiers
-    if variation_keys:
+    current_prompt_modifiers = []
+
+    if variation_key:
         variations = concept.get("variations", {})
-        valid_variations = []
-        all_valid = True
-        for key in variation_keys:
-            if key not in variations:
-                error_msg = f"错误：在概念 '{concept_key}' 中找不到变体 '{key}'。"
-                logger.error(error_msg)
-                print(error_msg)
-                all_valid = False
-            else:
-                 valid_variations.append(key)
-        if not all_valid:
-            print(f"由于概念 '{concept_key}' 的一个或多个变体键无效，提示词生成失败。")
+        if variation_key not in variations:
+            error_msg = f"错误：在概念 '{concept_key}' 中找不到变体 '{variation_key}'。"
+            logger.error(error_msg)
+            print(error_msg)
+            print(f"由于概念 '{concept_key}' 的变体键无效，提示词生成失败。")
             return None
-        for key in valid_variations:
-            variation_text = variations[key]
-            current_prompt_parts.append(variation_text)
-            logger.debug(f"添加概念变体 '{key}': {variation_text}")
+        else:
+            variation_text = variations[variation_key].strip()
+            if variation_text:
+                current_prompt_modifiers.append(variation_text)
+                logger.debug(f"添加概念变体描述 '{variation_key}': {variation_text}")
 
-    # Add global style modifiers (before technical params like --ar)
-    if global_style_keys:
+    if global_style_key:
         global_styles = config.get("global_styles", {})
-        valid_global_styles = []
-        all_valid = True
-        for key in global_style_keys:
-            if key not in global_styles:
-                error_msg = f"错误：找不到全局风格 '{key}'。请检查 prompts_config.json 中的 global_styles 定义。"
-                logger.error(error_msg)
-                print(error_msg)
-                all_valid = False
-            else:
-                valid_global_styles.append(key)
-        if not all_valid:
-            print(f"由于一个或多个全局风格键无效，提示词生成失败。")
+        if global_style_key not in global_styles:
+            error_msg = f"错误：找不到全局风格 '{global_style_key}'。请检查 prompts_config.json 中的 global_styles 定义。"
+            logger.error(error_msg)
+            print(error_msg)
+            print(f"由于全局风格键无效，提示词生成失败。")
             return None
-        for key in valid_global_styles:
-            style_text = global_styles[key]
-            current_prompt_parts.append(style_text)
-            logger.debug(f"添加全局风格 '{key}': {style_text}")
+        else:
+            style_text = global_styles[global_style_key].strip()
+            if style_text:
+                 current_prompt_modifiers.append(style_text)
+                 logger.debug(f"添加全局风格描述 '{global_style_key}': {style_text}")
+
+    # Combine description and modifiers
+    full_description = main_description.strip()
+    if current_prompt_modifiers:
+        modifier_string = ", ".join(filter(None, current_prompt_modifiers))
+        if full_description:
+            full_description += ", " + modifier_string
+        else:
+            full_description = modifier_string
 
     # Add technical parameters (aspect ratio, quality, version)
+    final_technical_params = []
     # Aspect Ratio
     aspect_ratios = config.get("aspect_ratios", {})
     if aspect_ratio in aspect_ratios:
         aspect_value_str = aspect_ratios[aspect_ratio]
-        current_prompt_parts.append(aspect_value_str)
+        final_technical_params.append(aspect_value_str)
         result["aspect_ratio"] = aspect_value_str.replace("--ar ", "")
         logger.debug(f"添加宽高比 '{aspect_ratio}': {aspect_value_str}")
     else:
@@ -136,7 +138,7 @@ def generate_prompt_text(logger, config, concept_key, variation_keys=None, globa
     quality_settings = config.get("quality_settings", {})
     if quality in quality_settings:
         quality_value_str = quality_settings[quality]
-        current_prompt_parts.append(quality_value_str)
+        final_technical_params.append(quality_value_str)
         result["quality"] = quality_value_str.replace("--q ", "")
         logger.debug(f"添加质量设置 '{quality}': {quality_value_str}")
     else:
@@ -148,21 +150,29 @@ def generate_prompt_text(logger, config, concept_key, variation_keys=None, globa
     style_versions = config.get("style_versions", {})
     if version in style_versions:
         version_value_str = style_versions[version]
-        current_prompt_parts.append(version_value_str)
+        final_technical_params.append(version_value_str)
         result["version"] = version_value_str.replace("--v ", "")
         logger.debug(f"添加版本设置 '{version}': {version_value_str}")
     else:
-        warning_msg = f"警告：找不到版本设置 '{version}'，将使用默认。"
-        logger.warning(warning_msg)
-        print(warning_msg)
+        version_value_str = f"--v {version.replace('v', '')}"
+        final_technical_params.append(version_value_str)
+        result["version"] = version.replace('v', '')
+        logger.debug(f"使用默认版本设置: {version_value_str}")
 
-    # Combine parts and strip whitespace
-    result["prompt"] = " ".join(current_prompt_parts).strip()
+    # If cref_url is provided, add it
+    if cref_url:
+        final_technical_params.append(f"--cref {cref_url}")
+        logger.debug(f"添加图像参考 URL: {cref_url}")
+
+    # Combine description, base technical params (if any), and final technical params
+    combined_parts = [full_description.strip()] + technical_params_from_base + final_technical_params
+    result["prompt"] = " ".join(filter(None, combined_parts)).strip()
+    logger.info(f"最终生成的提示词: {result['prompt']}")
     logger.info(f"提示词生成成功，长度: {len(result['prompt'])}")
 
     return result
 
-def save_text_prompt(logger, output_dir, prompt_text, concept_key, variation_keys=None):
+def save_text_prompt(logger, output_dir, prompt_text, concept_key, variation_key=None):
     """保存生成的文本提示词到指定目录
 
     Args:
@@ -170,12 +180,12 @@ def save_text_prompt(logger, output_dir, prompt_text, concept_key, variation_key
         output_dir: The directory to save the prompt file in.
         prompt_text: The prompt string to save.
         concept_key: Key of the concept.
-        variation_keys: List of variation keys (optional).
+        variation_key: Single variation key (optional).
     """
-    variation_log_str = '-'.join(variation_keys) if variation_keys else 'None'
+    variation_log_str = variation_key if variation_key else 'None'
     logger.info(f"正在保存提示词文本，概念: {concept_key}, 变体: {variation_log_str}")
 
-    # Ensure output directory exists (moved from ensure_directories)
+    # Ensure output directory exists
     if not os.path.exists(output_dir):
         try:
             os.makedirs(output_dir)
@@ -186,8 +196,7 @@ def save_text_prompt(logger, output_dir, prompt_text, concept_key, variation_key
             return None
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    # Create filename string from list of variations
-    variation_str = f"_{'-'.join(variation_keys)}" if variation_keys else ""
+    variation_str = f"_{variation_key}" if variation_key else ""
     filename = f"{concept_key}{variation_str}_prompt_{timestamp}.txt"
     filepath = os.path.join(output_dir, filename)
 
@@ -207,27 +216,18 @@ def save_text_prompt(logger, output_dir, prompt_text, concept_key, variation_key
         return None
 
 def copy_to_clipboard(logger, text):
-    """将文本复制到剪贴板
-
-    Args:
-        logger: The logging object.
-        text: The text to copy.
-    """
-    logger.debug("尝试复制文本到剪贴板")
+    """将文本复制到剪贴板"""
     if not PYPERCLIP_AVAILABLE:
-        warning_msg = "警告: pyperclip 模块不可用，无法复制到剪贴板。"
-        logger.warning(warning_msg)
-        print(warning_msg)
-        print("请使用 'uv pip install pyperclip' 安装。")
+        logger.warning("Pyperclip 模块不可用，无法复制到剪贴板。")
+        print("警告：Pyperclip 模块不可用，无法复制到剪贴板。")
         return False
+
     try:
-        # pyperclip is already imported or a dummy object exists
         pyperclip.copy(text)
-        logger.info("文本已成功复制到剪贴板")
+        logger.info("文本已复制到剪贴板。")
+        print("文本已复制到剪贴板。")
         return True
     except Exception as e:
-        # Catch potential pyperclip errors
-        error_msg = f"无法复制到剪贴板: {e}"
-        logger.error(error_msg)
-        print(error_msg)
-        return False 
+        logger.error(f"复制到剪贴板时发生错误: {e}", exc_info=True)
+        print(f"错误：无法复制到剪贴板 - {e}")
+        return False

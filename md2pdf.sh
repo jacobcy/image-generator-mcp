@@ -160,7 +160,7 @@ else
                 next;
             } else {
                 yaml_end=1;
-                print "CJKmainfont: \"Songti SC\"";
+                print "CJKmainfont: "Songti SC"";
                 print "CJKoptions: BoldFont=STHeiti,ItalicFont=STKaiti";
                 print $0;
                 next;
@@ -179,13 +179,13 @@ if ! grep -q "# 参考文献" "$temp_md_file" && ! grep -q "# References" "$temp
 fi
 
 # 执行pandoc命令
-pandoc_cmd="pandoc \"$temp_md_file\" -o \"$output_file\" \
+pandoc_cmd="pandoc "$temp_md_file" -o "$output_file" \
     --from=markdown+tex_math_single_backslash+citations+smart \
     --to=pdf \
     --pdf-engine=xelatex \
     --standalone \
     --toc \
-    --include-in-header=\"$temp_header_file\" \
+    --include-in-header="$temp_header_file" \
     --metadata=link-citations:true \
     --metadata=link-bibliography:true \
     --metadata=documentclass:article \

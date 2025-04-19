@@ -79,6 +79,17 @@
         "fractal": "fractal patterns, self-similar structures, emergent complexity, mathematical beauty",
         "futuristic": "futuristic digital interface, advanced visualization technology, AI-inspired design elements"
       }
+    },
+    "cc": {
+      "name": "恒河猴轮廓 - 网络可视化",
+      "description": "将复杂的数据网络可视化为恒河猴的轮廓，融合科技与生物形态",
+      "midjourney_prompt": "Hyper-realistic digital artwork depicting a complex network of interconnected data points forming the distinct **silhouette of a rhesus monkey**. Intricate red and gold lines represent pathways and connections, highlighted by small glowing emerald green or teal nodes. Set against a deep black background, emphasizing the glowing structure. The visualization evokes themes of biological data, neural networks, or complex communication systems. High-resolution, detailed micro-structure aesthetic, visually striking composition. --ar 3:4 --v 6.0",
+      "variations": {
+        "data_focus": "emphasize data points and digital structure, abstract data visualization style",
+        "organic_network": "lean towards a more organic, nerve-like network structure while maintaining the silhouette",
+        "vibrant_glow": "enhance the vibrancy and glow of the red, gold, and green/teal elements for higher contrast",
+        "minimalist": "simplify the network density while clearly preserving the rhesus monkey silhouette, cleaner background"
+      }
     }
   },
   "aspect_ratios": {
@@ -93,6 +104,7 @@
   },
   "style_versions": {
     "v5": "--v 5",
-    "v6": "--v 6"
+    "v6": "--v 6.1",
+    "v7": "--v 7"
   }
 }

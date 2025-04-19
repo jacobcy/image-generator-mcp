@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cell-cover-generator"
+version = "0.1.0"
+description = "A tool to generate cover images using an external API."
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "requests>=2.28.2",
+    "Pillow>=10.0.0",
+    "pyperclip>=1.8.2",
+    "colorlog>=6.9.0",
+    "python-dotenv>=1.0.1",
+]
+
+[project.scripts]
+crc = "cell_cover.cli:main"
+
+[tool.setuptools]
+packages = {find = {}}
