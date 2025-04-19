@@ -1,9 +1,21 @@
 {
+  "global_styles": {
+    "focus": "focused composition, emphasizing the central interaction, clean background with reduced clutter, clear subject highlighting",
+    "cinematic": "cinematic lighting, dramatic camera angle, shallow depth of field, epic scale",
+    "illustration": "clear scientific illustration style, precise lines, informational clarity, diagrammatic elements",
+    "photorealistic": "photorealistic rendering, highly detailed textures, realistic lighting simulation",
+    "dark_bg": "dark background, high contrast subject lighting, emphasizing glowing elements",
+    "vibrant_colors": "enhanced vibrant colors, high saturation, strong color contrast",
+    "electron_microscope": "electron microscope view aesthetic, grayscale with false color highlights, detailed surface texture",
+    "palette_cool": "Apply a cool color palette: depict the viral threat using deep purples or blues, the cellular pathway/structures in silver or light gray tones, and the interferon/defense response in bright cyan or electric blue light.",
+    "palette_warm": "Apply a warm color palette: represent the viral threat with fiery oranges or intense magentas, the cellular pathway/structures in deep reds or bronzes, and the interferon/defense response with bright white-yellow or intense orange light.",
+    "palette_bw_gold": "Apply a high-contrast black and white style with only the interferon/defense response highlighted in brilliant gold."
+  },
   "concepts": {
     "ca": {
       "name": "IFN盾牌（聚焦防御与治疗）",
       "description": "展示细胞通过干扰素防御猴痘病毒的过程，包括治疗性干扰素的增强作用",
-      "midjourney_prompt": "A stylized scientific illustration of a cell defending against monkeypox virus. The central cell (macrophage) is surrounded by red/orange spiky spheres (MPXV virus particles). Inside the cell, a glowing blue-green network (cGAS-STING pathway) emits golden/yellow waves of light (interferon) that form a protective, semi-transparent shield around the cell. This shield is visibly repelling some virus particles. An external beam of golden light merges with the shield, representing therapeutic interferon enhancing the defense. Clean 3D rendering style with dramatic lighting, medical illustration aesthetic, Cell journal cover art style.",
+      "midjourney_prompt": "A stylized scientific illustration of a cell defending against monkeypox virus. The central cell (macrophage) is surrounded by red/orange **brick-shaped poxvirus particles with their characteristic complex surface structure** (MPXV virus particles). Inside the cell, a glowing blue-green network (cGAS-STING pathway) emits golden/yellow waves of light (interferon) that form a protective, semi-transparent shield around the cell. This shield is visibly repelling some virus particles. An external beam of golden light merges with the shield, representing therapeutic interferon enhancing the defense. Clean 3D rendering style with dramatic lighting, medical illustration aesthetic, Cell journal cover art style.",
       "variations": {
         "scientific": "scientifically accurate, detailed cellular structure, medical textbook clarity",
         "minimalist": "minimalist design, clean background, focus on central cell and shield concept",
@@ -15,7 +27,7 @@
     "ca2": {
       "name": "IFN盾牌 - 微观战场视角",
       "description": "从微观视角展示免疫细胞与病毒的战斗，强调干扰素防御网络的形成过程",
-      "midjourney_prompt": "Microscopic battlefield view of immune defense against monkeypox virus. A detailed macrophage cell viewed as if through an electron microscope, with visible organelles and membrane. Red-orange viral particles with characteristic MPXV structure attempting to penetrate the cell. The cGAS-STING pathway activates as luminous blue-green molecular networks within the cytoplasm, triggering cascading golden waves of interferon molecules forming a protective aura. External therapeutic interferon molecules shown as brighter gold particles reinforcing the shield. Scientific accuracy with artistic rendering, dramatic lighting highlighting the molecular battle. Perfect for Cell Reports Medicine cover.",
+      "midjourney_prompt": "Microscopic battlefield view of immune defense against monkeypox virus. A detailed macrophage cell viewed as if through an electron microscope, with visible organelles and membrane. Red-orange **brick-shaped (not spherical)** viral particles with the characteristic complex MPXV structure attempting to penetrate the cell. The cGAS-STING pathway activates as luminous blue-green molecular networks within the cytoplasm, triggering cascading golden waves of interferon molecules forming a protective aura. External therapeutic interferon molecules shown as brighter gold particles reinforcing the shield. Scientific accuracy with artistic rendering, dramatic lighting highlighting the molecular battle. Perfect for Cell Reports Medicine cover.",
       "variations": {
         "detailed": "ultra-detailed molecular structures, scientific accuracy, electron microscope aesthetic",
         "dramatic": "dramatic lighting, high contrast between viral threat and immune defense, cinematic composition",
@@ -26,7 +38,7 @@
     "ca3": {
       "name": "IFN盾牌 - 细胞网络防御",
       "description": "展示多个细胞协同工作形成干扰素防御网络抵抗病毒入侵的场景",
-      "midjourney_prompt": "A network of cells coordinating defense against monkeypox virus invasion. Multiple macrophage cells connected by glowing golden interferon signal pathways, forming a defensive grid. Red-orange MPXV viral particles swarm from one side, encountering the cellular defense network. Each cell shows blue-green cGAS-STING activation internally, emitting golden interferon shields that merge into a collective barrier. External therapeutic interferon shown as brighter gold streams reinforcing vulnerable points in the defense. Cellular communication visualized as pulses of light between cells. Modern scientific illustration style with depth and dimension. Ideal for Cell Reports Medicine journal cover.",
+      "midjourney_prompt": "A network of cells coordinating defense against monkeypox virus invasion. Multiple macrophage cells connected by glowing golden interferon signal pathways, forming a defensive grid. Red-orange **brick-shaped MPXV viral particles (characteristic poxvirus morphology, not spherical)** swarm from one side, encountering the cellular defense network. Each cell shows blue-green cGAS-STING activation internally, emitting golden interferon shields that merge into a collective barrier. External therapeutic interferon shown as brighter gold streams reinforcing vulnerable points in the defense. Cellular communication visualized as pulses of light between cells. Modern scientific illustration style with depth and dimension. Ideal for Cell Reports Medicine journal cover.",
       "variations": {
         "network": "emphasis on cellular communication network, interconnected defense system, coordinated immune response",
         "swarm": "dynamic swarm behavior of both viruses and defensive molecules, emergent pattern formation",
@@ -37,7 +49,7 @@
     "cb": {
       "name": "抽象冲突与解决（聚焦艺术印象）",
       "description": "高度风格化的抽象表现，展示病毒入侵与免疫反应的冲突与解决",
-      "midjourney_prompt": "Abstract scientific art representing viral infection and immune response. Aggressive dark red geometric shapes and patterns invading from one corner, representing monkeypox virus. They encounter and are pushed back by an expanding network of vibrant blue-green energy (cGAS-STING pathway) and dominant golden/yellow light waves (interferon). The golden light appears to be overwhelming and controlling the red invasion. Fluid dynamics aesthetic, energy fields visualization, abstract molecular biology art. Suitable for Cell journal cover.",
+      "midjourney_prompt": "Abstract scientific art representing viral infection and immune response. Aggressive dark red **angular or complex geometric shapes** and patterns invading from one corner, representing monkeypox virus (**avoid simple spherical forms**). They encounter and are pushed back by an expanding network of vibrant blue-green energy (cGAS-STING pathway) and dominant golden/yellow light waves (interferon). The golden light appears to be overwhelming and controlling the red invasion. Fluid dynamics aesthetic, energy fields visualization, abstract molecular biology art. Suitable for Cell journal cover.",
       "variations": {
         "abstract": "highly abstract, non-literal representation, conceptual art approach",
         "dynamic": "dynamic flow, sense of motion, energetic composition, conflict and resolution in progress",
@@ -49,7 +61,7 @@
     "cb2": {
       "name": "抽象冲突 - 流体力学与光波",
       "description": "使用流体力学和光波美学表现免疫反应与病毒的交错与融合",
-      "midjourney_prompt": "Abstract fluid dynamics visualization of viral-immune interaction. Turbulent dark red fluid streams and vortices (representing MPXV) colliding with and being transformed by waves of blue-green energy fields (cGAS-STING) that generate expanding golden light ripples (interferon). The golden waves create interference patterns that disrupt and transform the red elements. External golden beams enter the system, amplifying the interference patterns. Inspired by computational fluid dynamics and wave optics physics. Artistic rendering with scientific undertones. Dramatic lighting with glowing elements against dark background. Perfect for Cell Reports Medicine cover art.",
+      "midjourney_prompt": "Abstract fluid dynamics visualization of viral-immune interaction. Turbulent dark red fluid streams and vortices (representing MPXV, **visualized as complex non-spherical entities**) colliding with and being transformed by waves of blue-green energy fields (cGAS-STING) that generate expanding golden light ripples (interferon). The golden waves create interference patterns that disrupt and transform the red elements. External golden beams enter the system, amplifying the interference patterns. Inspired by computational fluid dynamics and wave optics physics. Artistic rendering with scientific undertones. Dramatic lighting with glowing elements against dark background. Perfect for Cell Reports Medicine cover art.",
       "variations": {
         "fluid": "emphasis on fluid dynamics, turbulent flows, vortices and eddies, transformation of energy states",
         "wave": "wave interference patterns, light diffraction effects, resonance visualization, quantum-inspired aesthetics",
@@ -60,7 +72,7 @@
     "cb3": {
       "name": "抽象冲突 - 数字化免疫学",
       "description": "将免疫反应表现为数字化、算法化的抽象视觉元素",
-      "midjourney_prompt": "Digital abstract representation of immunological data against monkeypox virus. Red angular data points and fractals representing viral invasion patterns transform upon contact with an algorithmic network of blue-green digital structures (cGAS-STING pathway). This triggers cascading golden data streams and protective matrices (interferon response). External golden code streams merge with the defense system, enhancing its complexity and coverage. Visualization inspired by scientific data analysis, generative algorithms, and computational biology. Combines abstract data art with biological meaning. High contrast with glowing elements against dark background. Suitable for Cell Reports Medicine journal cover.",
+      "midjourney_prompt": "Digital abstract representation of immunological data against monkeypox virus. Red angular data points and fractals representing viral invasion patterns (**symbolizing complex non-spherical viral units**) transform upon contact with an algorithmic network of blue-green digital structures (cGAS-STING pathway). This triggers cascading golden data streams and protective matrices (interferon response). External golden code streams merge with the defense system, enhancing its complexity and coverage. Visualization inspired by scientific data analysis, generative algorithms, and computational biology. Combines abstract data art with biological meaning. High contrast with glowing elements against dark background. Suitable for Cell Reports Medicine journal cover.",
       "variations": {
         "data": "data visualization aesthetic, scientific information design, pattern recognition visuals",
         "code": "code-like structures, algorithmic patterns, digital matrix aesthetic, computational biology visuals",

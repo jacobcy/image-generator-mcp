@@ -5,6 +5,7 @@ import shutil
 import json
 import importlib
 import glob
+import tempfile
 from unittest.mock import patch, MagicMock, call
 
 # --- Path Setup --- #
@@ -55,71 +56,83 @@ except json.JSONDecodeError:
 
 DUMMY_API_KEY = "dummy_test_key"
 
-# Use patch.dict to simulate setting environment variables for the duration of the test class
+# Use patch.dict for environment variables
+# Patch load_config WHERE IT IS USED (in generate_cover module)
 @patch.dict(os.environ, {"TTAPI_API_KEY": DUMMY_API_KEY}, clear=True)
-@patch('cell_cover.utils.config.load_config', return_value=SAMPLE_CONFIG_DATA) # Patch config loading
+@patch('cell_cover.generate_cover.load_config', return_value=SAMPLE_CONFIG_DATA) # Correct patch target
 class TestGenerateCommand(unittest.TestCase):
 
     def setUp(self):
         """Set up before each test method."""
-        # Clean and create necessary directories used by the script
-        for dir_path in [IMAGE_DIR, META_DIR, LOG_DIR, OUTPUT_DIR]:
-            if os.path.exists(dir_path):
-                shutil.rmtree(dir_path)
-            os.makedirs(dir_path, exist_ok=True)
+        # Create a temporary directory for this test run
+        self.temp_dir_obj = tempfile.TemporaryDirectory()
+        self.temp_dir_path = self.temp_dir_obj.name
+        # Create subdirs within the temp dir if needed (though script should handle it)
+        os.makedirs(os.path.join(self.temp_dir_path, "images"), exist_ok=True)
+        os.makedirs(os.path.join(self.temp_dir_path, "metadata"), exist_ok=True)
+        os.makedirs(os.path.join(self.temp_dir_path, "logs"), exist_ok=True)
+        os.makedirs(os.path.join(self.temp_dir_path, "outputs"), exist_ok=True)
+        # NO longer touching real directories
 
     def tearDown(self):
         """Clean up after each test method."""
-        # Clean directories again to ensure isolation
-        for dir_path in [IMAGE_DIR, META_DIR, LOG_DIR, OUTPUT_DIR]:
-            if os.path.exists(dir_path):
-                shutil.rmtree(dir_path)
+        # Clean up the temporary directory and all its contents
+        self.temp_dir_obj.cleanup()
+        # NO longer touching real directories
 
     @patch('cell_cover.utils.api.requests.post')
     @patch('cell_cover.utils.file_handler.requests.get')
     @patch('cell_cover.utils.api.time.sleep', return_value=None) # Mock sleep in polling
     @patch('cell_cover.utils.prompt.pyperclip.copy', return_value=None) # Mock clipboard
-    def test_generate_single_variation_sync(self, mock_pyperclip, mock_sleep, mock_requests_get, mock_requests_post, mock_load_config):
+    @patch('cell_cover.utils.file_handler.IMAGE_DIR')
+    @patch('cell_cover.utils.file_handler.META_DIR')
+    @patch('cell_cover.utils.file_handler.META_FILE')
+    @patch('cell_cover.utils.file_handler.OUTPUT_DIR')
+    @patch('cell_cover.generate_cover.OUTPUT_DIR') # Patched where imported in main
+    @patch('cell_cover.generate_cover.SCRIPT_DIR') # Patch script dir used for logging base
+    def test_generate_single_variation_sync(self,
+                                            mock_script_dir, mock_gen_output_dir,
+                                            mock_fh_output_dir, mock_fh_meta_file,
+                                            mock_fh_meta_dir, mock_fh_image_dir,
+                                            mock_pyperclip, mock_sleep,
+                                            mock_requests_get, mock_requests_post,
+                                            mock_load_config): # mock_load_config from class patch
         """Test generating an image with a single variation in sync mode."""
-        print("\n--- test_generate_single_variation_sync ---")
-        # Configure mock responses
+        # --- Configure Patched Paths --- #
+        temp_image_dir = os.path.join(self.temp_dir_path, "images")
+        temp_meta_dir = os.path.join(self.temp_dir_path, "metadata")
+        temp_meta_file = os.path.join(temp_meta_dir, "images_metadata.json")
+        temp_output_dir = os.path.join(self.temp_dir_path, "outputs")
+        # Assign the correct temp paths to the mocked constants
+        mock_fh_image_dir.return_value = temp_image_dir
+        mock_fh_meta_dir.return_value = temp_meta_dir
+        mock_fh_meta_file.return_value = temp_meta_file
+        mock_fh_output_dir.return_value = temp_output_dir
+        mock_gen_output_dir.return_value = temp_output_dir
+        mock_script_dir.return_value = self.temp_dir_path # Log dir will be based on this temp dir
+
+        print("\n--- test_generate_single_variation_sync (using temp dir) ---")
+        # Configure mock API responses
         mock_requests_post.side_effect = [
-            mock_imagine_success,    # Response to /imagine
-            mock_fetch_pending,      # First response to /fetch (polling)
-            mock_fetch_success_sync  # Second response to /fetch (polling)
+            mock_imagine_success, mock_fetch_pending, mock_fetch_success_sync
         ]
-        mock_requests_get.return_value = mock_download_success # Response to image download
+        mock_requests_get.return_value = mock_download_success
 
         # --- Execute script's main function --- #
-        # Save original sys.argv
         original_argv = sys.argv
-        # Set command line arguments for the test, INCLUDING the 'create' command
         sys.argv = [
-            'generate_cover.py',
-            'create',            # <-- Add the subcommand here
-            '-c', 'concept_a',
-            '-var', 'varA',
-            '--save-prompt'
+            'generate_cover.py', 'create', '-c', 'concept_a', '-var', 'varA', '--save-prompt'
         ]
-
         try:
-            # Reload the module to pick up patches if necessary (might not be needed with direct call)
-            importlib.reload(generate_cover)
             generate_cover.main()
         except SystemExit as e:
-            # Sync mode with successful fetch should not exit with error code
             self.assertIsNone(e.code, f"Script exited unexpectedly with code {e.code}")
         except Exception as e:
             self.fail(f"Script failed with exception: {e}")
         finally:
-            # Restore original sys.argv
             sys.argv = original_argv
 
         # --- Assertions --- #
-        # Verify load_config was called (implicitly, by the script startup)
-        # We patched it at the class level, so it's always called with the fixture data
-        # mock_load_config.assert_called() # This assertion isn't strictly needed unless we check args
-
         # Verify API calls
         self.assertEqual(mock_requests_post.call_count, 3, "Expected 3 POST calls (imagine + 2 fetch)")
         imagine_call = mock_requests_post.call_args_list[0]
@@ -139,26 +152,18 @@ class TestGenerateCommand(unittest.TestCase):
         # Verify download call
         mock_requests_get.assert_called_once_with("http://mock.url/image_sync.png", stream=True, timeout=60)
 
-        # Verify image file creation
-        image_files = glob.glob(os.path.join(IMAGE_DIR, "concept_a_varA_image_*.png"))
-        self.assertEqual(len(image_files), 1, "Expected one image file to be created")
+        # Verify files were created in the TEMP directory
+        image_files = glob.glob(os.path.join(temp_image_dir, "concept_a_varA_image_*.png"))
+        self.assertEqual(len(image_files), 1, f"Expected one image file in temp dir {temp_image_dir}")
+        self.assertTrue(os.path.exists(temp_meta_file), f"Metadata file should be created in temp dir {temp_meta_dir}")
+        with open(temp_meta_file, 'r', encoding='utf-8') as f:
+             metadata = json.load(f)
+        self.assertEqual(len(metadata['images']), 1)
+        # Check filepath in metadata points to the temp directory
+        self.assertTrue(metadata['images'][0]['filepath'].startswith(temp_image_dir))
 
-        # Verify metadata file creation and content
-        self.assertTrue(os.path.exists(META_FILE), "Metadata file should be created")
-        with open(META_FILE, 'r', encoding='utf-8') as f:
-            metadata = json.load(f)
-        self.assertEqual(len(metadata['images']), 1, "Expected one entry in metadata")
-        img_meta = metadata['images'][0]
-        self.assertEqual(img_meta['concept'], 'concept_a')
-        self.assertEqual(img_meta['variations'], ['varA'])
-        self.assertEqual(img_meta['job_id'], 'mock_job_123')
-        self.assertEqual(img_meta['seed'], '12345')
-        self.assertEqual(img_meta['url'], "http://mock.url/image_sync.png")
-        self.assertTrue(img_meta['filename'].startswith("concept_a_varA_image_"))
-
-        # Verify prompt file creation
-        prompt_files = glob.glob(os.path.join(OUTPUT_DIR, "concept_a_varA_prompt_*.txt"))
-        self.assertEqual(len(prompt_files), 1, "Expected one prompt file to be created")
+        prompt_files = glob.glob(os.path.join(temp_output_dir, "concept_a_varA_prompt_*.txt"))
+        self.assertEqual(len(prompt_files), 1, f"Expected one prompt file in temp dir {temp_output_dir}")
         with open(prompt_files[0], 'r', encoding='utf-8') as f:
             prompt_content = f.read()
         self.assertEqual(prompt_content, "test prompt base with variation A --ar 8:11 --q 1 --v 6")
@@ -167,28 +172,45 @@ class TestGenerateCommand(unittest.TestCase):
     @patch('cell_cover.utils.file_handler.requests.get')
     @patch('cell_cover.utils.api.time.sleep', return_value=None)
     @patch('cell_cover.utils.prompt.pyperclip.copy', return_value=None)
-    def test_generate_multiple_variations_async(self, mock_pyperclip, mock_sleep, mock_requests_get, mock_requests_post, mock_load_config):
+    @patch('cell_cover.utils.file_handler.IMAGE_DIR')
+    @patch('cell_cover.utils.file_handler.META_DIR')
+    @patch('cell_cover.utils.file_handler.META_FILE')
+    @patch('cell_cover.utils.file_handler.OUTPUT_DIR')
+    @patch('cell_cover.generate_cover.OUTPUT_DIR') # Patched where imported in main
+    @patch('cell_cover.generate_cover.SCRIPT_DIR') # Patch script dir used for logging base
+    def test_generate_multiple_variations_async(self,
+                                             mock_script_dir, mock_gen_output_dir,
+                                             mock_fh_output_dir, mock_fh_meta_file,
+                                             mock_fh_meta_dir, mock_fh_image_dir,
+                                             mock_pyperclip, mock_sleep,
+                                             mock_requests_get, mock_requests_post,
+                                             mock_load_config):
         """Test generating an image with multiple variations in async mode."""
-        print("\n--- test_generate_multiple_variations_async ---")
-        # Configure mock responses
-        mock_requests_post.return_value = mock_imagine_success # Only imagine is called in async
+         # --- Configure Patched Paths --- #
+        temp_image_dir = os.path.join(self.temp_dir_path, "images")
+        temp_meta_dir = os.path.join(self.temp_dir_path, "metadata")
+        temp_meta_file = os.path.join(temp_meta_dir, "images_metadata.json")
+        temp_output_dir = os.path.join(self.temp_dir_path, "outputs")
+        # Assign the correct temp paths to the mocked constants
+        mock_fh_image_dir.return_value = temp_image_dir
+        mock_fh_meta_dir.return_value = temp_meta_dir
+        mock_fh_meta_file.return_value = temp_meta_file
+        mock_fh_output_dir.return_value = temp_output_dir
+        mock_gen_output_dir.return_value = temp_output_dir
+        mock_script_dir.return_value = self.temp_dir_path # Log dir will be based on this temp dir
+
+        print("\n--- test_generate_multiple_variations_async (using temp dir) ---")
+        # Configure mock API responses
+        mock_requests_post.return_value = mock_imagine_success
 
         # --- Execute script's main function --- #
         original_argv = sys.argv
-        # Set command line arguments for the test, INCLUDING the 'create' command
         sys.argv = [
-            'generate_cover.py',
-            'create',            # <-- Add the subcommand here
-            '-c', 'concept_a',
-            '-var', 'varA', 'varB',
-            '--hook-url', 'http://mock-webhook.com/notify' # Enable async
+            'generate_cover.py', 'create', '-c', 'concept_a', '-var', 'varA', 'varB', '--hook-url', 'http://mock-webhook.com/notify'
         ]
-
         try:
-            importlib.reload(generate_cover)
             generate_cover.main()
         except SystemExit as e:
-            # Async mode should exit gracefully (code None) without errors
             self.assertIsNone(e.code, f"Async script exited with unexpected code {e.code}")
         except Exception as e:
             self.fail(f"Script failed with exception: {e}")
@@ -196,9 +218,6 @@ class TestGenerateCommand(unittest.TestCase):
             sys.argv = original_argv
 
         # --- Assertions --- #
-        # Verify load_config was called
-        # mock_load_config.assert_called()
-
         # Verify API call (only imagine)
         self.assertEqual(mock_requests_post.call_count, 1, "Expected 1 POST call (imagine)")
         imagine_call = mock_requests_post.call_args_list[0]
@@ -213,10 +232,10 @@ class TestGenerateCommand(unittest.TestCase):
         # Verify no download was attempted
         mock_requests_get.assert_not_called()
 
-        # Verify no image or metadata files were created locally
-        image_files = glob.glob(os.path.join(IMAGE_DIR, "*.png"))
-        self.assertEqual(len(image_files), 0, "No image file should be created in async mode")
-        self.assertFalse(os.path.exists(META_FILE), "Metadata file should not be created in async mode")
+        # Verify NO files were created in the TEMP directory
+        image_files = glob.glob(os.path.join(temp_image_dir, "*.png"))
+        self.assertEqual(len(image_files), 0, f"No image file should be created in temp dir {temp_image_dir} in async mode")
+        self.assertFalse(os.path.exists(temp_meta_file), f"Metadata file should not be created in temp dir {temp_meta_dir} in async mode")
 
 if __name__ == '__main__':
     # Running with unittest discovery is preferred

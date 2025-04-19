@@ -26,14 +26,15 @@ except ImportError:
     pyperclip = DummyPyperclip()
 
 
-def generate_prompt_text(logger, config, concept_key, variation_keys=None, aspect_ratio="cell_cover", quality="high", version="v6"):
+def generate_prompt_text(logger, config, concept_key, variation_keys=None, global_style_keys=None, aspect_ratio="cell_cover", quality="high", version="v6"):
     """生成用于API的Midjourney提示词文本和参数字典
 
     Args:
         logger: The logging object.
         config: The loaded configuration dictionary.
         concept_key: Key of the concept to use.
-        variation_keys: List of variation keys to use (optional).
+        variation_keys: List of concept-specific variation keys (optional).
+        global_style_keys: List of global style keys (optional).
         aspect_ratio: Key for aspect ratio setting.
         quality: Key for quality setting.
         version: Key for Midjourney version setting.
@@ -43,7 +44,8 @@ def generate_prompt_text(logger, config, concept_key, variation_keys=None, aspec
         失败时返回 None
     """
     variation_log_str = '-'.join(variation_keys) if variation_keys else 'None'
-    logger.info(f"正在生成提示词，概念: {concept_key}, 变体: {variation_log_str}")
+    style_log_str = '-'.join(global_style_keys) if global_style_keys else 'None'
+    logger.info(f"正在生成提示词，概念: {concept_key}, 变体: {variation_log_str}, 全局风格: {style_log_str}")
 
     # Initialize result dictionary
     result = {
@@ -52,7 +54,8 @@ def generate_prompt_text(logger, config, concept_key, variation_keys=None, aspec
         "quality": None,
         "version": None,
         "concept": concept_key,
-        "variations": variation_keys or [] # Store the list
+        "variations": variation_keys or [],
+        "global_styles": global_style_keys or [] # Store applied global styles
     }
 
     concepts = config.get("concepts", {})
@@ -70,65 +73,83 @@ def generate_prompt_text(logger, config, concept_key, variation_keys=None, aspec
         print(error_msg)
         return None
 
+    # Start building prompt parts
     current_prompt_parts = [base_prompt]
     logger.debug(f"基础提示词: {base_prompt}")
 
-    # Add variation modifiers
+    # Add concept-specific variation modifiers
     if variation_keys:
         variations = concept.get("variations", {})
         valid_variations = []
-        # First, check if all provided keys are valid
         all_valid = True
         for key in variation_keys:
             if key not in variations:
-                error_msg = f"错误：找不到变体 '{key}' 用于概念 '{concept_key}'。"
+                error_msg = f"错误：在概念 '{concept_key}' 中找不到变体 '{key}'。"
                 logger.error(error_msg)
                 print(error_msg)
                 all_valid = False
             else:
                  valid_variations.append(key)
-
         if not all_valid:
-            print("由于一个或多个变体键无效，提示词生成失败。")
+            print(f"由于概念 '{concept_key}' 的一个或多个变体键无效，提示词生成失败。")
             return None
-
-        # If all are valid, append their text
         for key in valid_variations:
             variation_text = variations[key]
             current_prompt_parts.append(variation_text)
-            logger.debug(f"添加变体 '{key}': {variation_text}")
+            logger.debug(f"添加概念变体 '{key}': {variation_text}")
 
+    # Add global style modifiers (before technical params like --ar)
+    if global_style_keys:
+        global_styles = config.get("global_styles", {})
+        valid_global_styles = []
+        all_valid = True
+        for key in global_style_keys:
+            if key not in global_styles:
+                error_msg = f"错误：找不到全局风格 '{key}'。请检查 prompts_config.json 中的 global_styles 定义。"
+                logger.error(error_msg)
+                print(error_msg)
+                all_valid = False
+            else:
+                valid_global_styles.append(key)
+        if not all_valid:
+            print(f"由于一个或多个全局风格键无效，提示词生成失败。")
+            return None
+        for key in valid_global_styles:
+            style_text = global_styles[key]
+            current_prompt_parts.append(style_text)
+            logger.debug(f"添加全局风格 '{key}': {style_text}")
 
-    # Add aspect ratio (and store the value)
+    # Add technical parameters (aspect ratio, quality, version)
+    # Aspect Ratio
     aspect_ratios = config.get("aspect_ratios", {})
     if aspect_ratio in aspect_ratios:
-        aspect_value_str = aspect_ratios[aspect_ratio] # e.g., "--ar 3:4"
+        aspect_value_str = aspect_ratios[aspect_ratio]
         current_prompt_parts.append(aspect_value_str)
-        result["aspect_ratio"] = aspect_value_str.replace("--ar ", "") # Store the value "3:4"
+        result["aspect_ratio"] = aspect_value_str.replace("--ar ", "")
         logger.debug(f"添加宽高比 '{aspect_ratio}': {aspect_value_str}")
     else:
         warning_msg = f"警告：找不到宽高比设置 '{aspect_ratio}'，将使用默认。"
         logger.warning(warning_msg)
         print(warning_msg)
 
-    # Add quality setting (and store the value)
+    # Quality
     quality_settings = config.get("quality_settings", {})
     if quality in quality_settings:
-        quality_value_str = quality_settings[quality] # e.g., "--q 2"
+        quality_value_str = quality_settings[quality]
         current_prompt_parts.append(quality_value_str)
-        result["quality"] = quality_value_str.replace("--q ", "") # Store the value "2"
+        result["quality"] = quality_value_str.replace("--q ", "")
         logger.debug(f"添加质量设置 '{quality}': {quality_value_str}")
     else:
         warning_msg = f"警告：找不到质量设置 '{quality}'，将使用默认。"
         logger.warning(warning_msg)
         print(warning_msg)
 
-    # Add version setting (and store the value)
+    # Version
     style_versions = config.get("style_versions", {})
     if version in style_versions:
-        version_value_str = style_versions[version] # e.g., "--v 6"
+        version_value_str = style_versions[version]
         current_prompt_parts.append(version_value_str)
-        result["version"] = version_value_str.replace("--v ", "") # Store the value "6"
+        result["version"] = version_value_str.replace("--v ", "")
         logger.debug(f"添加版本设置 '{version}': {version_value_str}")
     else:
         warning_msg = f"警告：找不到版本设置 '{version}'，将使用默认。"

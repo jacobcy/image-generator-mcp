@@ -14,140 +14,101 @@ import requests # Make sure requests is imported
 
 # --- API Constants ---
 TTAPI_BASE_URL = "https://api.ttapi.io/midjourney/v1"
-POLL_INTERVAL_SECONDS = 10  # Default poll interval
-FETCH_TIMEOUT_SECONDS = 360 # Default fetch timeout
+POLL_INTERVAL_SECONDS = 5   # Interval between polling attempts
+FETCH_TIMEOUT_SECONDS = 300 # Timeout for the OVERALL polling loop (in seconds)
+MAX_POLL_ATTEMPTS = 60      # Max attempts (not currently used for overall timeout)
 
 # Note: logger needs to be passed into the functions or initialized differently
 
-def call_imagine_api(logger, prompt_data, api_key, hook_url=None, notify_id=None, max_retries=1):
-    """调用TTAPI的 /imagine 接口
+# --- Helper Functions ---
+def _handle_api_error(logger, response, context="API 请求"):
+    """统一处理 API 请求错误"""
+    error_message = f"{context}失败 - {response.status_code} {response.reason}"
+    try:
+        error_details = response.json() #尝试解析 JSON 响应体
+        error_message += f" - {json.dumps(error_details)}"
+        logger.error(f"Response body: {json.dumps(error_details)}") # Log detailed error
+    except json.JSONDecodeError:
+        error_message += f" - 响应体无法解析为 JSON: {response.text}"
+        logger.error(f"Response body (non-JSON): {response.text}")
+    logger.error(error_message)
+    # This helper itself doesn't return None, the caller should handle the return
+    # return None # Removed return None
 
-    参数:
-    - logger: The logging object.
-    - prompt_data: 包含提示词和参数的字典
-    - api_key: TTAPI API密钥
-    - hook_url: 可选的webhook URL，用于接收任务完成通知
-    - notify_id: 可选的通知ID，用于识别回调请求
-    - max_retries: 最大重试次数（默认为1）
+def call_imagine_api(logger, prompt_data, api_key, hook_url=None, notify_id=None, cref_url=None):
+    """调用 TTAPI 的 /imagine 接口提交任务
+
+    Args:
+        logger: The logging object.
+        prompt_data: Dictionary containing the 'prompt' and potentially 'mode'.
+        api_key: Your TTAPI API Key.
+        hook_url: Optional webhook URL for async callback.
+        notify_id: Optional custom ID for webhook callback.
+        cref_url: Optional image reference URL for --cref parameter.
+
+    Returns:
+        The Job ID string if successful, None otherwise.
     """
-    url = f"{TTAPI_BASE_URL}/imagine"
+    endpoint = f"{TTAPI_BASE_URL}/imagine"
     headers = {
         "TT-API-KEY": api_key,
         "Content-Type": "application/json"
     }
+    # Base payload from prompt_data (contains prompt and mode)
+    payload = prompt_data.copy()
 
-    # 获取生成模式，默认为 fast
-    mode = prompt_data.get("mode", "fast")
-    logger.info(f"准备调用 /imagine API，模式: {mode}")
-
-    # 根据模式设置超时时间 (这个逻辑也可以移到调用者处，或者在这里作为默认)
-    if mode == "relax":
-        timeout = 600  # relax模式默认超时时间更长
-    else:
-        timeout = 300  # fast和turbo模式默认超时时间
-
-    # 构建请求体 - TODO: Refactor to accept individual parameters per API spec
-    payload = {
-        "prompt": prompt_data["prompt"], # Keep prompt for now
-        "mode": mode,
-        "timeout": timeout
-        # Add other parameters like aspect, quality, model, etc., here
-    }
-
-    # Add parameters expected by the API (aspect, quality, model etc.)
-    # These should ideally be passed explicitly, not just in the prompt string
-    # Example (needs prompt_data to contain these keys):
-    # if "aspect_ratio" in prompt_data and prompt_data["aspect_ratio"]:
-    #     payload["aspect"] = prompt_data["aspect_ratio"] # Use the value like "1:1"
-    # if "quality" in prompt_data and prompt_data["quality"]:
-    #     payload["quality"] = prompt_data["quality"] # Use the value like "1"
-    # if "version" in prompt_data and prompt_data["version"]:
-    #     payload["model"] = f"v{prompt_data['version']}" # Assuming version is like "6" -> "v6.0" - needs mapping
-
-    # 添加 webhook 相关参数
+    # Add optional parameters to the payload
     if hook_url:
-        payload["hookUrl"] = hook_url
-        logger.info(f"使用 webhook URL: {hook_url}")
-        if notify_id:
-            payload["notifyId"] = notify_id
-            logger.debug(f"使用通知ID: {notify_id}")
+        payload['hookUrl'] = hook_url
+    if notify_id:
+        payload['notify_id'] = notify_id
+    if cref_url:
+        # Ensure cref is only sent if v6 is explicitly or implicitly used?
+        # TTAPI docs say cref is only for v6. We assume the user provides
+        # --version v6 when using --cref for now.
+        # A check could be added here if prompt_data included the version.
+        payload['cref'] = cref_url
 
-    logger.info(f"正在调用 /imagine API...")
-    logger.debug(f"请求头: {headers}") # Log headers too
-    logger.debug(f"请求参数 (Payload): {json.dumps(payload, indent=2)}") # Pretty print payload
-    print(f"正在调用 /imagine API...")
-    # print(f"请求参数: {payload}") # Avoid printing potentially large prompts twice
+    logger.info(f"向 {endpoint} 发送请求")
+    logger.debug(f"请求 Payload: {json.dumps(payload)}") # Be careful logging potentially large prompts
 
-    # 重试逻辑
-    for attempt in range(max_retries + 1):
-        try:
-            if attempt > 0:
-                logger.info(f"第 {attempt} 次重试调用 /imagine API...")
-                print(f"第 {attempt} 次重试调用 /imagine API...")
-                time.sleep(2)  # 重试前等待 2 秒
+    try:
+        response = requests.post(endpoint, headers=headers, json=payload, timeout=FETCH_TIMEOUT_SECONDS)
+        response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
 
-            response = requests.post(url, headers=headers, json=payload, timeout=30) # 增加请求超时
+        response_data = response.json()
+        logger.debug(f"API 响应: {response_data}")
 
-            logger.debug(f"API 响应状态码: {response.status_code}")
-            # print(f"API 响应状态码: {response.status_code}") # Reduce console noise
-
-            try:
-                response_json = response.json()
-                logger.debug(f"API 响应内容: {json.dumps(response_json, indent=2)}") # Pretty print
-                # print(f"API 响应内容: {response_json}") # Reduce console noise
-            except json.JSONDecodeError:
-                # Log the raw text if JSON parsing fails
-                logger.warning(f"API 响应不是有效的 JSON: {response.text[:500]}...") # Log truncated response
-                print(f"API 响应文本: {response.text}")
-                response_json = None # Set to None if not valid JSON
-
-            response.raise_for_status() # 对 >= 400 的状态码抛出异常
-
-            # Check response content even if status is 2xx
-            if response_json:
-                result = response_json
-                if result.get("status") == "SUCCESS" and result.get("data", {}).get("jobId"):
-                    job_id = result["data"]["jobId"]
-                    success_msg = f"任务成功提交，Job ID: {job_id}"
-                    logger.info(success_msg)
-                    print(success_msg)
-                    return job_id
-                else:
-                    error_msg = f"API 提交失败: {result.get('message', '未知错误')}"
-                    logger.error(error_msg)
-                    logger.error(f"完整响应: {result}")
-                    print(error_msg)
-                    # print(f"完整响应: {result}") # Already logged
+        if response_data.get("status") == "SUCCESS":
+            job_id = response_data.get("data", {}).get("jobId")
+            if job_id:
+                logger.info(f"任务提交成功，Job ID: {job_id}")
+                return job_id
             else:
-                # Handle cases where response is 2xx but not valid JSON or expected structure
-                error_msg = f"API 调用成功 (状态码 {response.status_code}) 但响应格式不正确或未包含 Job ID。"
-                logger.error(error_msg)
-                print(error_msg)
-
-
-            # If we reach here, it means the API call was successful (2xx) but logical failure or bad response
-            # Only retry on RequestExceptions or specific API errors if desired
-            # For now, break the loop if API call was successful but didn't return jobId
-            if attempt < max_retries:
-                 logger.warning("API 调用成功但未获取 Job ID，不再重试。")
-                 # Decide if this case should retry - currently it won't.
-            return None # Return None as job submission failed logically
-
-        except requests.exceptions.RequestException as e:
-            error_msg = f"调用 /imagine API 时出错: {e}"
-            logger.error(error_msg)
-            print(error_msg)
-            # Only retry on request exceptions
-            if attempt < max_retries:
-                continue
-            # After all retries, return None
-            logger.error("所有 /imagine API 调用重试尝试均失败 (RequestException)")
+                logger.error("API 报告成功，但响应中缺少 Job ID")
+                return None
+        else:
+            error_message = response_data.get("message", "未知错误")
+            logger.error(f"API 报告失败: {error_message}")
+            print(f"错误：API 任务提交失败 - {error_message}")
             return None
 
-    # If loop finishes without returning (e.g., all retries failed for RequestException)
-    logger.error("所有 /imagine API 调用重试尝试均失败")
-    return None
-
+    except requests.exceptions.Timeout:
+        logger.error(f"调用 /imagine API 超时 ({FETCH_TIMEOUT_SECONDS} 秒)")
+        print(f"错误：调用 API 超时。")
+        return None
+    except requests.exceptions.RequestException as e:
+        logger.error(f"调用 /imagine API 时发生网络错误: {e}")
+        print(f"错误：API 请求失败 - {e}")
+        return None
+    except json.JSONDecodeError:
+        logger.error("无法解析 API 响应 (非 JSON 格式)")
+        print("错误：API 响应格式无效。")
+        return None
+    except Exception as e:
+        logger.error(f"调用 /imagine API 时发生意外错误: {e}", exc_info=True)
+        print(f"错误：处理 API 请求时发生意外错误。")
+        return None
 
 def poll_for_result(logger, job_id, api_key, poll_interval=POLL_INTERVAL_SECONDS, timeout=FETCH_TIMEOUT_SECONDS, max_retries_per_poll=1):
     """轮询 /fetch 接口获取任务结果
@@ -283,4 +244,168 @@ def poll_for_result(logger, job_id, api_key, poll_interval=POLL_INTERVAL_SECONDS
     error_msg = f"错误：获取任务结果超时 ({timeout}秒)。"
     logger.error(error_msg)
     print(error_msg)
-    return None 
+    return None
+
+def fetch_job_list_from_ttapi(api_key, logger, page=1, limit=10):
+    """调用 TTAPI 获取 Midjourney 历史任务列表。
+
+    Args:
+        api_key (str): TTAPI 密钥。
+        logger (logging.Logger): 日志记录器。
+        page (int, optional): 页码。默认为 1。
+        limit (int, optional): 每页数量 (最大100)。默认为 10。
+
+    Returns:
+        list: 包含任务字典的列表，如果成功。
+        None: 如果请求失败或没有数据。
+    """
+    endpoint = f"{TTAPI_BASE_URL}/fetch-list"
+    headers = {
+        "TT-API-KEY": api_key,
+        "Content-Type": "application/json"
+    }
+    params = {
+        "page": page,
+        "limit": min(limit, 100) # 确保不超过最大值
+    }
+
+    logger.info(f"开始调用 TTAPI 获取任务列表 (Page: {page}, Limit: {params['limit']})...")
+    try:
+        response = requests.get(endpoint, headers=headers, params=params, timeout=60) # 增加超时时间
+        response.raise_for_status() # 如果状态码不是 2xx，则抛出异常
+
+        result = response.json()
+        if result.get("status") == "SUCCESS" and "data" in result:
+            job_list = result["data"]
+            logger.info(f"成功获取到 {len(job_list)} 条任务记录 (Page: {page}, Limit: {params['limit']})。")
+            return job_list
+        else:
+            error_message = result.get("message", "未知的成功响应格式")
+            logger.error(f"调用 TTAPI 获取任务列表响应状态非 SUCCESS: {error_message}")
+            return None
+
+    except requests.exceptions.Timeout as e:
+        logger.error(f"调用 TTAPI 获取任务列表超时: {e}")
+        return None
+    except requests.exceptions.RequestException as e:
+        logger.error(f"调用 TTAPI 获取任务列表失败: {e}")
+        # 可以尝试解析错误响应体，如果存在的话
+        try:
+            error_data = response.json()
+            logger.error(f"TTAPI 错误详情: {error_data}")
+        except (AttributeError, ValueError):
+            pass # response 可能不存在或不是 JSON
+        return None
+    except Exception as e:
+        logger.exception(f"处理 TTAPI 任务列表响应时发生意外错误: {e}")
+        return None
+
+def call_action_api(logger, api_key, original_job_id, action, hook_url=None):
+    """调用 TTAPI 的 /action 接口执行 Upscale, Variation 等操作。
+
+    Args:
+        logger (logging.Logger): 日志记录器。
+        api_key (str): TTAPI 密钥。
+        original_job_id (str): 要对其执行操作的原始任务的 Job ID。
+        action (str): 要执行的操作标识符 (例如: "upsample1", "variation2", "reroll0")。
+        hook_url (str, optional): Webhook URL 用于异步回调。
+
+    Returns:
+        str: 新任务的 Job ID (如果成功)。
+        None: 如果请求失败。
+    """
+    endpoint = f"{TTAPI_BASE_URL}/action"
+    headers = {
+        "TT-API-KEY": api_key,
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "jobId": original_job_id,
+        "action": action
+    }
+    if hook_url:
+        payload["hookUrl"] = hook_url
+
+    logger.info(f"向 {endpoint} 发送 Action 请求")
+    logger.debug(f"Action Payload: {json.dumps(payload)}")
+
+    try:
+        response = requests.post(endpoint, headers=headers, json=payload, timeout=60) # Set a reasonable timeout
+        response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+
+        response_data = response.json()
+        logger.debug(f"Action API 响应: {response_data}")
+
+        if response_data.get("status") == "SUCCESS":
+            # According to example, new job ID is in data.jobId
+            new_job_id = response_data.get("data", {}).get("jobId")
+            if new_job_id:
+                logger.info(f"Action 任务提交成功，新的 Job ID: {new_job_id}")
+                return new_job_id
+            else:
+                # If status is SUCCESS but no new jobId, it might be an older API version or unexpected response
+                # Let's also check if the top-level jobId exists, just in case
+                legacy_job_id = response_data.get("jobId") # Check top level based on example response structure mismatch
+                if legacy_job_id:
+                    logger.warning("Action API 响应状态为 SUCCESS，但新 Job ID 在 'data' 字段中未找到，尝试使用顶层 'jobId'。")
+                    logger.info(f"Action 任务提交成功（使用顶层 Job ID），新的 Job ID: {legacy_job_id}")
+                    return legacy_job_id
+                else:
+                    logger.error("Action API 报告成功，但响应中缺少新的 Job ID (检查了 'data.jobId' 和 'jobId')")
+                    return None
+        else:
+            error_message = response_data.get("message", "未知错误")
+            logger.error(f"Action API 报告失败: {error_message}")
+            print(f"错误：API 操作提交失败 - {error_message}") # Also print error
+            return None
+
+    except requests.exceptions.Timeout:
+        logger.error(f"调用 /action API 超时 (60 秒)")
+        print(f"错误：调用 Action API 超时。")
+        return None
+    except requests.exceptions.RequestException as e:
+        logger.error(f"调用 /action API 时发生网络错误: {e}")
+        # Log response body if available
+        try: logger.error(f"Response body: {response.text}")
+        except: pass
+        print(f"错误：API Action 请求失败 - {e}")
+        return None
+    except json.JSONDecodeError:
+        logger.error(f"无法解析 /action API 响应 (非 JSON 格式): {response.text}")
+        print("错误：Action API 响应格式无效。")
+        return None
+    except Exception as e:
+        logger.error(f"处理 /action 响应时发生意外错误: {e}", exc_info=True)
+        return None
+
+def fetch_seed_from_ttapi(logger, api_key, job_id):
+    """调用 TTAPI 的 /seed 接口获取任务的 Seed 值"""
+    endpoint = f"{TTAPI_BASE_URL}/seed"
+    headers = {"TT-API-KEY": api_key}
+    payload = {"jobId": job_id}
+
+    logger.info(f"向 {endpoint} 请求 Job ID: {job_id} 的 Seed...")
+    try:
+        response = requests.post(endpoint, headers=headers, json=payload, timeout=30)
+        response.raise_for_status()
+        data = response.json()
+        # Check response structure, assuming 'data' contains 'seed'
+        if data.get("status") == "SUCCESS" and "data" in data and "seed" in data["data"]:
+            seed_value = data["data"]["seed"]
+            logger.info(f"成功获取到 Job ID {job_id} 的 Seed: {seed_value}")
+            return data["data"] # Return the whole data part which includes seed
+        elif data.get("status") == "SUCCESS":
+            logger.warning(f"API 成功响应 Seed 请求，但 data 或 seed 字段缺失: {data}")
+            return data # Return response even if seed missing, caller checks
+        else:
+            logger.error(f"API 返回 Seed 获取失败状态: {data.get('status', 'N/A')}, Message: {data.get('message', 'N/A')}")
+            return None
+
+    except requests.exceptions.RequestException as e:
+        logger.error(f"调用 /seed API 时发生网络错误 (Job ID: {job_id}): {e}")
+        if isinstance(e, requests.exceptions.HTTPError):
+             _handle_api_error(logger, e.response, f"Seed API 请求 (Job ID: {job_id})")
+        return None
+    except Exception as e:
+        logger.error(f"处理 /seed 响应时发生意外错误 (Job ID: {job_id}): {e}", exc_info=True)
+        return None 

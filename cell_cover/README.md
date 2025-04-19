@@ -27,10 +27,12 @@
 2. **多样化变体**：每个创意概念有多个变体可供选择
 3. **灵活配置**：可自定义宽高比、质量和 Midjourney 版本
 4. **API 集成**：通过 TTAPI 直接生成图像并下载到本地
-5. **多种生成模式**：支持 relax、fast 和 turbo 三种生成模式
-6. **异步生成**：支持通过 Webhook 异步接收生成结果
-7. **元数据管理**：自动保存图像元数据，便于后续查询和管理
-8. **日志记录**：详细的日志记录，便于排查问题
+5. **多种操作支持**：支持 Upscale, Variation, Reroll 等后续操作。
+6. **Seed 管理**：支持获取图像 Seed，并基于 Prompt 和 Seed 重新生成。
+7. **异步生成**：支持通过 Webhook 异步接收生成结果
+8. **元数据管理**：自动保存图像元数据，便于后续查询和管理
+9. **日志记录**：详细的日志记录，便于排查问题
+10. **统一命令入口**：通过 `crc` 命令访问所有功能。
 
 ## 安装与设置
 
@@ -46,10 +48,16 @@
 2. 运行安装脚本安装依赖：
 
 ```bash
-cd /Users/chenyi/Library/Mobile Documents/com~apple~CloudDocs/paper
+cd /path/to/your/project/cell_cover # 进入项目目录
 chmod +x setup.sh
 ./setup.sh
 ```
+
+该脚本会：
+- 检查 Python 和 uv 环境。
+- 使用 uv 安装 `requirements.txt` 中的依赖。
+- 在 `$HOME/.local/bin` 目录下创建一个名为 `crc` 的全局命令。
+- 检查 `$HOME/.local/bin` 是否在您的 PATH 环境变量中，如果不在则提示您添加。
 
 3. 设置 TTAPI API 密钥：
 
@@ -57,27 +65,29 @@ chmod +x setup.sh
 # 方法一：设置环境变量
 export TTAPI_API_KEY="your_api_key_here"
 
-# 方法二：创建 .env 文件
-echo "TTAPI_API_KEY=your_api_key_here" > cell_cover/.env
+# 方法二：创建 .env 文件 (在项目根目录下)
+echo "TTAPI_API_KEY=your_api_key_here" > .env
 ```
 
-4. 确保脚本有执行权限：
+4. (可选) 确保 Python 脚本有执行权限（通常 `setup.sh` 创建的 `crc` 命令会处理这个）：
 
 ```bash
-cd cell_cover
-chmod +x generate_cover.sh
-chmod +x generate_cover.py
+# 如果直接运行 Python 脚本会用到，但推荐使用 crc
+# chmod +x cell_cover/generate_cover.py
+# chmod +x cell_cover/fetch_job_status.py
 ```
 
 ## 使用指南
 
 ### 基本命令
 
-所有命令都通过 `generate_cover.sh` 脚本执行：
+所有命令都通过 `crc` 命令执行。您可以在任何目录下运行 `crc` (前提是安装目录在 PATH 中)。
 
+查看可用命令和帮助：
 ```bash
-cd /Users/chenyi/Library/Mobile Documents/com~apple~CloudDocs/paper/cell_cover
-chmod +x generate_cover.sh  # 确保脚本有执行权限
+crc help
+# 或者
+crc <子命令> --help
 ```
 
 ### 创意概念
@@ -85,13 +95,13 @@ chmod +x generate_cover.sh  # 确保脚本有执行权限
 查看所有可用的创意概念：
 
 ```bash
-./generate_cover.sh list
+crc list
 ```
 
 查看特定概念的变体：
 
 ```bash
-./generate_cover.sh variations concept_a
+crc variations ca # 注意：这里概念名是 ca 而不是 concept_a
 ```
 
 ### 生成提示词
@@ -99,67 +109,123 @@ chmod +x generate_cover.sh  # 确保脚本有执行权限
 生成基本提示词：
 
 ```bash
-./generate_cover.sh generate concept_a
+crc generate -p "A photorealistic electron microscope view of a virus attacking a cell, detailed, cinematic lighting" --aspect landscape
 ```
 
 生成带变体的提示词：
 
 ```bash
-./generate_cover.sh generate concept_a --variation scientific
+crc generate -p "A photorealistic electron microscope view of a virus attacking a cell, detailed, cinematic lighting" --aspect landscape --var scientific
 ```
 
 生成提示词并复制到剪贴板：
 
 ```bash
-./generate_cover.sh generate concept_c --variation dynamic --clipboard
+crc generate -p "A photorealistic electron microscope view of a virus attacking a cell, detailed, cinematic lighting" --aspect landscape --var vibrant --clipboard
 ```
 
 自定义宽高比、质量和版本：
 
 ```bash
-./generate_cover.sh generate concept_a2 --aspect portrait --quality standard --version v5
+crc generate -p "A photorealistic electron microscope view of a virus attacking a cell, detailed, cinematic lighting" --aspect landscape --quality high --version v6
 ```
 
 ### 生成图像
 
-使用 `create` 命令生成图像：
+使用 `create` 命令基于概念和变体生成图像：
 
 ```bash
-# 基本用法
-./generate_cover.sh create concept_a
+# 基本用法 (使用 ca 概念的默认变体)
+crc create -c ca
 
 # 指定变体
-./generate_cover.sh create concept_a --variation scientific
+crc create -c ca -var scientific
 
-# 指定生成模式
-./generate_cover.sh create concept_a --variation dramatic --mode relax
+# 添加全局风格
+crc create -c ca -var dramatic --style focus cinematic
 
 # 使用其他参数
-./generate_cover.sh create concept_a --variation vibrant --aspect portrait --quality high --version v6 --save-prompt
+crc create -c ca -var vibrant --aspect portrait --quality high --version v6 --save-prompt
 ```
 
-生成模式说明：
-
-- **relax**：质量最高，生成时间约 120 秒
-- **fast**：平衡质量和速度，生成时间约 60 秒（默认）
-- **turbo**：速度最快，生成时间约 30 秒
-
-### 查询任务状态
-
-使用 `check` 命令查询任务状态：
-
+使用 `generate` 命令基于自由格式提示词生成图像：
 ```bash
-./generate_cover.sh check <job_id>
+crc generate -p "A photorealistic electron microscope view of a virus attacking a cell, detailed, cinematic lighting" --aspect landscape
 ```
 
-任务 ID 在提交任务时会返回。
+使用 `recreate` 命令基于之前的任务 (使用其 Prompt 和 Seed) 重新生成图像：
+```bash
+# 使用文件名、Job ID 前缀或完整 Job ID 作为标识符
+crc recreate <job_id_or_filename>
+
+# 示例
+crc recreate ca-abc123-scientific-focus-20240101_120000.png
+crc recreate abc123 # 使用 Job ID 前缀
+```
+注意：`recreate` 命令需要原始任务的元数据中包含 `seed` 值。
+
+### 管理和查询任务
+
+列出历史任务：
+```bash
+# 默认显示本地元数据中的任务列表 (最近 50 条)
+crc list
+
+# 使用 --limit 限制本地列表数量
+crc list --limit 10
+
+# 使用 --remote 从 TTAPI 获取远程任务列表
+crc list --remote
+
+# 获取远程任务列表并指定页码和数量
+crc list --remote --page 2 --limit 20
+```
+
+查看特定任务详情：
+```bash
+crc view <job_id>
+```
+
+获取任务的 Seed 值：
+```bash
+# 使用文件名、Job ID 前缀或完整 Job ID 作为标识符
+crc seed <job_id_or_filename>
+
+# 示例
+crc seed ca-abc123-scientific-focus-20240101_120000.png
+```
+此命令会先检查本地元数据，如果未找到 Seed，会尝试从 API 获取并更新本地元数据。
+
+恢复本地缺失的元数据：
+```bash
+crc restore --limit 50
+```
+
+### 执行后续操作 (Upscale, Variation, Reroll)
+
+基于原始任务执行操作：
+```bash
+# 使用文件名、Job ID 前缀或完整 Job ID 作为标识符
+
+# Upscale (放大第 N 张图)
+crc upscale <job_id_or_filename> 2
+
+# Variation (基于第 N 张图生成变体)
+crc variation <job_id_or_filename> 3
+
+# Reroll (重新执行原始 Prompt)
+crc reroll <job_id_or_filename>
+```
 
 ### 异步模式
 
 当生成时间较长时，建议使用异步模式：
 
 ```bash
-./generate_cover.sh create concept_a --hook-url https://your-webhook.com/callback --notify-id your-custom-id
+crc create -c ca --hook-url https://your-webhook.com/callback --notify-id your-custom-id
+
+# 也可用于 recreate, upscale, variation, reroll 等命令
+crc upscale <job_id> 1 --hook-url https://your-webhook.com/callback
 ```
 
 当任务完成时，TTAPI 将发送回调请求到指定的 Webhook URL。
@@ -181,12 +247,16 @@ chmod +x generate_cover.sh  # 确保脚本有执行权限
 - **url**: 原始图像 URL
 - **prompt**: 生成图像的提示词
 - **concept**: 使用的创意概念
-- **variation**: 使用的变体（如果有）
+- **variation**: 使用的变体列表（如果有）
+- **global_styles**: 使用的全局风格列表（如果有）
 - **components**: 可用的操作组件（如 upsample1、variation1 等）
 - **seed**: 生成图像的种子值（如果有）
 - **created_at**: 创建时间
+- **metadata_updated_at**: 元数据最后更新时间（例如通过 `crc seed` 更新时）
 
 这些元数据可以用于后续的图像管理和操作。
+
+后续操作（Upscale, Variation, Reroll）的结果元数据存储在 `metadata/actions_metadata.json` 中，包含新旧 Job ID、操作类型等信息。
 
 ### 创意概念
 
@@ -222,6 +292,7 @@ chmod +x generate_cover.sh  # 确保脚本有执行权限
 
 ### 其他设置
 
+- **全局风格 (Global Styles)**: 可通过 `--style` 参数在 `create` 和 `generate` 命令中使用，例如 `focus`, `cinematic`, `illustration`, `photorealistic`, `dark_bg`, `vibrant_colors`, `electron_microscope`。可在 `prompts_config.json` 中查看或添加。
 - **宽高比**：portrait (3:4), square (1:1), landscape (4:3), cell_cover (0.75)
 - **质量设置**：standard, high
 - **Midjourney版本**：v5, v6
@@ -251,14 +322,14 @@ chmod +x generate_cover.sh  # 确保脚本有执行权限
 
 ### 提示词生成后在哪里查看？
 
-生成的提示词将保存在 `outputs` 目录中，并显示在终端上。如果使用 `--clipboard` 选项，提示词也会被复制到剪贴板。
+生成的提示词会直接用于 API 调用。如果需要查看或保存提示词文本，可以在 `create` 或 `generate` 命令中使用 `--save-prompt` 选项，提示词将保存在 `outputs` 目录中。
 
 ### 如何获取最佳效果？
 
 1. 尝试不同的创意概念和变体
 2. 调整宽高比以匹配 Cell 杂志封面要求
 3. 使用高质量设置生成图像
-4. 生成多个图像并选择最佳效果
+4. 使用 `crc seed <identifier>` 获取成功的 Seed，然后使用 `crc recreate <identifier>` 尝试微调参数重新生成。
 5. 进行专业的后期处理
 
 ### API 调用失败怎么办？

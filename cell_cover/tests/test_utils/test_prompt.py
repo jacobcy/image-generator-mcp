@@ -46,6 +46,10 @@ SAMPLE_CONFIG = {
   "style_versions": {
     "v6": "--v 6",
     "v5": "--v 5"
+  },
+  "global_styles": {
+    "focus": "focused composition, emphasizing the central interaction, clean background with reduced clutter, clear subject highlighting",
+    "cinematic": "cinematic style"
   }
 }
 
@@ -114,13 +118,15 @@ class TestPromptUtils(unittest.TestCase):
         """Test prompt generation with an invalid variation key."""
         result = generate_prompt_text(self.mock_logger, SAMPLE_CONFIG, "concept_a", variation_keys=["invalidVar"])
         self.assertIsNone(result)
-        self.mock_logger.error.assert_called_with("错误：找不到变体 'invalidVar' 用于概念 'concept_a'。")
+        expected_error_msg = "错误：在概念 'concept_a' 中找不到变体 'invalidVar'。"
+        self.mock_logger.error.assert_called_with(expected_error_msg)
 
     def test_generate_prompt_mixed_variations_invalid(self):
         """Test prompt generation with mixed valid and invalid variation keys."""
         result = generate_prompt_text(self.mock_logger, SAMPLE_CONFIG, "concept_a", variation_keys=["varA", "invalidVar"])
         self.assertIsNone(result)
-        self.mock_logger.error.assert_called_with("错误：找不到变体 'invalidVar' 用于概念 'concept_a'。") # Should fail on first invalid
+        expected_error_msg = "错误：在概念 'concept_a' 中找不到变体 'invalidVar'。"
+        self.mock_logger.error.assert_called_with(expected_error_msg) # Should fail on first invalid
 
     def test_generate_prompt_invalid_aspect(self):
         """Test handling of invalid aspect ratio key (should warn and use default)."""
@@ -131,6 +137,52 @@ class TestPromptUtils(unittest.TestCase):
             self.assertTrue(result['prompt'].endswith("--v 6")) # Ensure default params are still there
             self.mock_logger.warning.assert_called_with("警告：找不到宽高比设置 'invalid_aspect'，将使用默认。")
             mock_print.assert_any_call("警告：找不到宽高比设置 'invalid_aspect'，将使用默认。")
+
+    # --- NEW Tests for Global Styles --- #
+
+    def test_generate_prompt_single_global_style(self):
+        """Test prompt generation with a single valid global style."""
+        result = generate_prompt_text(self.mock_logger, SAMPLE_CONFIG, "concept_a", global_style_keys=["focus"])
+        self.assertIsNotNone(result)
+        # Check if global style text is inserted before technical params
+        expected_prompt = "test prompt base focused composition, emphasizing the central interaction, clean background with reduced clutter, clear subject highlighting --ar 8:11 --q 1 --v 6"
+        self.assertEqual(result['prompt'], expected_prompt)
+        self.assertEqual(result['global_styles'], ["focus"])
+        self.assertEqual(result['variations'], []) # No concept variations used
+
+    def test_generate_prompt_multiple_global_styles(self):
+        """Test prompt generation with multiple valid global styles."""
+        result = generate_prompt_text(self.mock_logger, SAMPLE_CONFIG, "concept_a", global_style_keys=["focus", "cinematic"])
+        self.assertIsNotNone(result)
+        style1_text = SAMPLE_CONFIG["global_styles"]["focus"]
+        style2_text = SAMPLE_CONFIG["global_styles"]["cinematic"]
+        expected_prompt = f"test prompt base {style1_text} {style2_text} --ar 8:11 --q 1 --v 6"
+        self.assertEqual(result['prompt'], expected_prompt)
+        self.assertEqual(result['global_styles'], ["focus", "cinematic"])
+
+    def test_generate_prompt_invalid_global_style(self):
+        """Test prompt generation with an invalid global style key."""
+        result = generate_prompt_text(self.mock_logger, SAMPLE_CONFIG, "concept_a", global_style_keys=["nonexistent_style"])
+        self.assertIsNone(result)
+        self.mock_logger.error.assert_called_with("错误：找不到全局风格 'nonexistent_style'。请检查 prompts_config.json 中的 global_styles 定义。")
+
+    def test_generate_prompt_mixed_global_styles_invalid(self):
+        """Test prompt generation with mixed valid and invalid global style keys."""
+        result = generate_prompt_text(self.mock_logger, SAMPLE_CONFIG, "concept_a", global_style_keys=["focus", "invalid_style"])
+        self.assertIsNone(result)
+        self.mock_logger.error.assert_called_with("错误：找不到全局风格 'invalid_style'。请检查 prompts_config.json 中的 global_styles 定义。")
+
+    def test_generate_prompt_variation_and_global_style(self):
+        """Test prompt generation using both concept variation and global style."""
+        result = generate_prompt_text(self.mock_logger, SAMPLE_CONFIG, "concept_a", variation_keys=["varA"], global_style_keys=["cinematic"])
+        self.assertIsNotNone(result)
+        variation_text = SAMPLE_CONFIG["concepts"]["concept_a"]["variations"]["varA"]
+        style_text = SAMPLE_CONFIG["global_styles"]["cinematic"]
+        # Expect variation text then global style text before technical params
+        expected_prompt = f"test prompt base {variation_text} {style_text} --ar 8:11 --q 1 --v 6"
+        self.assertEqual(result['prompt'], expected_prompt)
+        self.assertEqual(result['variations'], ["varA"])
+        self.assertEqual(result['global_styles'], ["cinematic"])
 
     # --- Tests for save_text_prompt --- #
 

@@ -32,12 +32,12 @@ try:
 except ImportError:
     PYPERCLIP_AVAILABLE = False
 
-# 从 utils 导入重构后的函数
-from utils.api import call_imagine_api, poll_for_result
-from utils.config import load_config, get_api_key
-from utils.log import setup_logging
-from utils.prompt import generate_prompt_text, save_text_prompt, copy_to_clipboard
-from utils.file_handler import ensure_directories, download_and_save_image
+# 从 utils 导入重构后的函数 (使用显式相对导入)
+from .utils.api import call_imagine_api, poll_for_result
+from .utils.config import load_config, get_api_key
+from .utils.log import setup_logging
+from .utils.prompt import generate_prompt_text, save_text_prompt, copy_to_clipboard
+from .utils.file_handler import ensure_directories, download_and_save_image, find_initial_job_info
 
 # --- 配置常量 ---
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -135,6 +135,8 @@ def main():
     parser_generate.add_argument("-ar", "--aspect", type=str, default="cell_cover", help="宽高比设置的键 (默认: cell_cover)")
     parser_generate.add_argument("-q", "--quality", type=str, default="high", help="质量设置的键 (默认: high)")
     parser_generate.add_argument("-ver", "--version", type=str, default="v6", help="Midjourney 版本的键 (默认: v6)")
+    parser_generate.add_argument("--cref", type=str, help="图像参考 URL (仅 v6 支持, 仅在 create 命令中实际提交)")
+    parser_generate.add_argument("--style", type=str, nargs='+', help="应用全局风格修饰词 (可选, 可指定多个, 例如: focus cinematic)")
     parser_generate.add_argument("--clipboard", action="store_true", help="将生成的提示词复制到剪贴板")
     parser_generate.add_argument("--save-prompt", action="store_true", help="同时保存生成的提示词文本到 outputs 目录")
     parser_generate.add_argument("-v", "--verbose", action="store_true", help="显示详细的调试日志")
@@ -146,13 +148,21 @@ def main():
     parser_create.add_argument("-ar", "--aspect", type=str, default="cell_cover", help="宽高比设置的键 (默认: cell_cover)")
     parser_create.add_argument("-q", "--quality", type=str, default="high", help="质量设置的键 (默认: high)")
     parser_create.add_argument("-ver", "--version", type=str, default="v6", help="Midjourney 版本的键 (默认: v6)")
-    parser_create.add_argument("-m", "--mode", type=str, default="fast", choices=["relax", "fast", "turbo"],
-                      help="生成模式: relax(约120秒), fast(约60秒), turbo(约30秒) (默认: fast)")
+    parser_create.add_argument("-m", "--mode", type=str, default="relax", choices=["relax", "fast", "turbo"],
+                      help="生成模式: relax(约120秒), fast(约60秒), turbo(约30秒) (默认: relax)")
+    parser_create.add_argument("--cref", type=str, help="图像参考 URL (需要配合 v6 使用)")
+    parser_create.add_argument("--style", type=str, nargs='+', help="应用全局风格修饰词 (可选, 可指定多个, 例如: focus cinematic)")
     parser_create.add_argument("--clipboard", action="store_true", help="将生成的提示词复制到剪贴板 (也会在提交前显示)")
     parser_create.add_argument("--save-prompt", action="store_true", help="同时保存生成的提示词文本到 outputs 目录 (也会在提交前显示)")
     parser_create.add_argument("--hook-url", type=str, help="Webhook URL，用于接收任务完成通知（异步模式必需）")
     parser_create.add_argument("--notify-id", type=str, help="通知ID，用于识别回调请求（可选）")
     parser_create.add_argument("-v", "--verbose", action="store_true", help="显示详细的调试日志")
+
+    # --- Recreate 子命令 ---
+    parser_recreate = subparsers.add_parser("recreate", help="使用原始 Prompt 和 Seed 重新生成图像")
+    parser_recreate.add_argument("identifier", type=str, help="要重新生成的原始任务标识符 (Job ID 前缀/完整 ID/文件名)")
+    parser_recreate.add_argument("--hook-url", type=str, help="Webhook URL 用于异步通知（可选）")
+    # We might want options to override some parameters like --ar, --v, etc., but keep it simple for now
 
     args = parser.parse_args()
 
@@ -169,12 +179,21 @@ def main():
     config = load_config(logger, config_path)
     api_key = get_api_key(logger, SCRIPT_DIR)
 
-    # Ensure necessary directories exist (Needed for generate/create)
     # We can make this conditional based on command
-    if args.command in ['generate', 'create']:
+    if args.command in ['generate', 'create', 'recreate']: # Added recreate
         if not ensure_directories(logger):
             logger.critical("无法创建必要的目录，脚本退出。")
             sys.exit(1)
+
+    # --- Initialize variables needed for post-processing --- #
+    job_id = None
+    prompt_text = None
+    concept_key = None
+    variation_keys = None
+    global_style_keys = None
+    seed = None # Seed determined by the command
+    components = None # Components from polling result
+    prompt_data_for_api = {} # Holds payload for API
 
     # --- Command Execution --- #
 
@@ -186,46 +205,54 @@ def main():
 
     elif args.command == 'generate' or args.command == 'create':
         # Common logic for generating prompt text
-        prompt_data = generate_prompt_text(
+        prompt_result = generate_prompt_text( # Changed variable name
             logger=logger,
             config=config,
             concept_key=args.concept,
             variation_keys=args.variation,
+            global_style_keys=args.style,
             aspect_ratio=args.aspect,
             quality=args.quality,
             version=args.version
         )
 
-        if not prompt_data:
-            sys.exit(1) # Error already logged by generate_prompt_text
+        if not prompt_result:
+            sys.exit(1) # Error already logged
+
+        # Set variables for post-processing
+        prompt_text = prompt_result["prompt"]
+        concept_key = args.concept
+        variation_keys = args.variation
+        global_style_keys = args.style
+        # seed will be determined after polling for create/generate
 
         print("生成的 Midjourney 提示词:")
         print("-" * 80)
-        print(prompt_data["prompt"])
+        print(prompt_text)
         print("-" * 80)
 
-        # Optional: Save prompt text
+        # (可选) 保存提示词文本
         if args.save_prompt:
-            from utils.file_handler import OUTPUT_DIR # Import specifically for this call
+            from .utils.file_handler import OUTPUT_DIR # Import specifically for this call
             save_text_prompt(
                 logger=logger,
                 output_dir=OUTPUT_DIR,
-                prompt_text=prompt_data["prompt"],
+                prompt_text=prompt_text,
                 concept_key=args.concept,
                 variation_keys=args.variation
             )
 
         # Optional: Copy to clipboard
         if args.clipboard:
-            if copy_to_clipboard(logger, prompt_data["prompt"]):
+            if copy_to_clipboard(logger, prompt_text):
                 print("提示词文本已复制到剪贴板")
 
-        # --- create command specific logic ---
+        # --- create command specific logic --- #
         if args.command == 'create':
-            # Add mode from create args
-            prompt_data["mode"] = args.mode
+            # Prepare payload for API
+            prompt_data_for_api = {"prompt": prompt_text, "mode": args.mode}
 
-            # Check hook URL for async mode warning (only for create)
+            # Check hook URL for async mode warning
             if not args.hook_url:
                 warning_msg = "警告：未指定 --hook-url，将使用同步模式。建议使用异步模式以提高可靠性。"
                 logger.warning(warning_msg)
@@ -235,63 +262,128 @@ def main():
             # Call API to create job
             job_id = call_imagine_api(
                 logger=logger,
-                prompt_data=prompt_data,
+                prompt_data=prompt_data_for_api,
                 api_key=api_key,
                 hook_url=args.hook_url,
-                notify_id=args.notify_id
+                notify_id=args.notify_id,
+                cref_url=args.cref
             )
+            # Note: Post-processing (polling/download) happens *after* the command block
 
-            if not job_id:
-                print("未能提交图像生成任务。")
+    elif args.command == "recreate":
+        logger.info(f"开始 recreate 操作，查找标识符 '{args.identifier}'...")
+        # from .utils.file_handler import find_initial_job_info # Already imported at top now
+        original_job_info = find_initial_job_info(logger, args.identifier)
+        if not original_job_info:
+            print(f"错误：无法根据标识符 '{args.identifier}' 找到唯一的原始任务。请检查标识符和元数据文件。")
+            sys.exit(1)
+
+        # --- Extract data from original_job_info --- #
+        prompt_text = original_job_info.get("prompt") # Base prompt for logging/metadata
+        seed = original_job_info.get("seed") # Original seed, might be None
+        concept_key = original_job_info.get("concept", "recreated") # Use original or fallback
+        variation_keys = original_job_info.get("variations") # Get original variations
+        global_style_keys = original_job_info.get("global_styles") # Get original styles if stored
+        # ------------------------------------------- #
+
+        if not prompt_text:
+            logger.error(f"找到的任务 {original_job_info.get('job_id')} 缺少 'prompt' 信息，无法重新创建。")
+            print(f"错误：找到的任务 {original_job_info.get('job_id')} 缺少 'prompt' 信息。")
+            sys.exit(1)
+
+        logger.info(f"找到原始任务 Prompt: '{prompt_text}'")
+        if seed is not None:
+            logger.info(f"找到原始任务 Seed: {seed}")
+        else:
+            logger.info("未在原始任务元数据中找到 Seed。")
+
+        # Construct the prompt to send to API
+        prompt_to_send = prompt_text
+        if seed is not None:
+            if f"--seed {seed}" not in prompt_text:
+                prompt_to_send = f"{prompt_text} --seed {seed}"
+                logger.info(f"将 Seed ({seed}) 追加到 Prompt: '{prompt_to_send}'")
+            else:
+                logger.info(f"原始 Prompt '{prompt_text}' 已包含 Seed ({seed})。")
+        else:
+            logger.info(f"将仅使用原始 Prompt (无 Seed): '{prompt_to_send}'")
+
+        logger.info(f"使用最终确定的 Prompt 提交新任务...")
+        # Assuming recreate uses default 'relax' unless overridden later
+        prompt_data_for_api = {"prompt": prompt_to_send, "mode": "relax"}
+
+        job_id = call_imagine_api(
+            logger=logger,
+            prompt_data=prompt_data_for_api,
+            api_key=api_key,
+            hook_url=args.hook_url
+            # cref is not carried over unless explicitly added
+        )
+        # Note: Post-processing (polling/download) happens *after* the command block
+        # We store the original seed (or None) in the 'seed' variable for metadata saving later
+
+    # --- Post-Job Submission Processing (Common for create, recreate, generate if not async) --- #
+    # This block only runs if a command that generates a job_id was executed
+    # and if the command was NOT 'generate' (which doesn't submit)
+    if job_id and args.command != 'generate': # Only process if a job was submitted
+
+        # --- 处理任务提交结果 --- #
+        # Moved the check here - this was redundant as call_imagine_api handles it
+        # if not job_id:
+        #     print("错误：提交任务失败。")
+        #     sys.exit(1)
+
+        # --- 处理同步/异步 --- #
+        if args.hook_url:
+            logger.info(f"任务已提交，任务ID: {job_id}")
+            logger.info(f"使用异步模式，结果将发送到: {args.hook_url}")
+            print(f"任务已提交，任务ID: {job_id}")
+            print(f"任务完成后，结果将发送到: {args.hook_url}")
+            if hasattr(args, 'notify_id') and args.notify_id:
+                logger.debug(f"通知ID: {args.notify_id}")
+                print(f"通知ID: {args.notify_id}")
+            print("脚本将退出，您可以关闭终端或继续其他操作。")
+        else:
+            # Sync mode: poll for result
+            logger.info("使用同步模式，开始轮询任务结果...")
+            print("使用同步模式，开始轮询任务结果...")
+            result_data = poll_for_result(logger=logger, job_id=job_id, api_key=api_key)
+
+            if not result_data:
+                print("未能获取生成的图像 URL 或任务失败。")
                 sys.exit(1)
 
-            # Handle sync/async response
-            if args.hook_url:
-                logger.info(f"任务已提交，任务ID: {job_id}")
-                logger.info(f"使用异步模式，结果将发送到: {args.hook_url}")
-                print(f"任务已提交，任务ID: {job_id}")
-                print(f"任务完成后，结果将发送到: {args.hook_url}")
-                if args.notify_id:
-                    logger.debug(f"通知ID: {args.notify_id}")
-                    print(f"通知ID: {args.notify_id}")
-                print("脚本将退出，您可以关闭终端或继续其他操作。")
-                # No return here, script exits naturally
-            else:
-                # Sync mode: poll for result
-                logger.info("使用同步模式，开始轮询任务结果...")
-                print("使用同步模式，开始轮询任务结果...")
-                result_data = poll_for_result(logger=logger, job_id=job_id, api_key=api_key)
+            image_url = result_data.get("cdnImage")
+            if not image_url:
+                print("错误：任务成功但结果中未找到 cdnImage URL。")
+                sys.exit(1)
 
-                if not result_data:
-                    print("未能获取生成的图像 URL。")
-                    sys.exit(1)
+            # Update seed and components from the final result
+            final_seed = result_data.get("seed", seed) # Prefer final seed, fallback to original if needed
+            if seed is None and final_seed is not None:
+                 logger.info(f"从轮询结果中获取到 Seed: {final_seed}")
+                 seed = final_seed # Update the seed variable for metadata saving
 
-                image_url = result_data.get("cdnImage")
-                if not image_url:
-                    print("错误：任务成功但结果中未找到 cdnImage URL。")
-                    sys.exit(1)
+            # Download and save image
+            saved_image_path = download_and_save_image(
+                logger=logger,
+                image_url=image_url,
+                job_id=job_id,
+                prompt=prompt_text, # Use original base prompt for metadata
+                concept_key=concept_key or "unknown", # Use concept from command or fallback
+                variation_keys=variation_keys,
+                global_style_keys=global_style_keys,
+                seed=seed # Pass the final determined seed
+            )
+            if not saved_image_path:
+                print("未能成功下载或保存图像。")
+                sys.exit(1)
 
-                components = result_data.get("components")
-                seed = result_data.get("seed")
+            print("图像生成和保存流程完成!")
 
-                # Download and save image
-                saved_image_path = download_and_save_image(
-                    logger=logger,
-                    image_url=image_url,
-                    job_id=job_id,
-                    prompt=prompt_data["prompt"], # Use original prompt sent
-                    concept_key=args.concept,
-                    variation_keys=args.variation,
-                    components=components,
-                    seed=seed
-                )
-                if not saved_image_path:
-                    print("未能成功下载或保存图像。")
-                    sys.exit(1)
-
-                print("图像生成和保存流程完成!")
-
-    # No else needed, subparsers.required=True ensures a command is chosen
+    # If command was 'generate' or didn't produce a job_id, exit here
+    elif args.command == 'generate':
+         print("提示词已生成。使用 'create' 或 'recreate' 命令来生成图像。")
 
 if __name__ == "__main__":
     main()
