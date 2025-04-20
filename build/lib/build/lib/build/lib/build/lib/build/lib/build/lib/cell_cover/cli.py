@@ -32,8 +32,8 @@ def main():
         epilog="需要设置环境变量 TTAPI_API_KEY")
     subparsers = parser.add_subparsers(dest='command', help='选择要执行的操作', required=True)
 
-    # --- list_concepts 命令 ---
-    parser_list = subparsers.add_parser('list_concepts', help='列出所有可用的创意概念')
+    # --- list-concepts 命令 ---
+    parser_list = subparsers.add_parser('list-concepts', help='列出所有可用的创意概念')
     parser_list.add_argument("-v", "--verbose", action="store_true", help="显示详细的调试日志")
 
     # --- variations 命令 ---
@@ -124,7 +124,7 @@ def main():
 
     # Get API key
     api_key = get_api_key(logger)
-    if not api_key and args.command not in ['list_concepts', 'variations', 'generate', 'select']:
+    if not api_key and args.command not in ['list-concepts', 'variations', 'generate', 'select']:
         logger.critical("需要 TTAPI_API_KEY 环境变量或 .env 文件中的条目才能执行此命令。")
         sys.exit(1)
 
@@ -135,7 +135,7 @@ def main():
     exit_code = 1 # Default exit code
 
     try:
-        if args.command == 'list_concepts':
+        if args.command == 'list-concepts':
             exit_code = handle_list_concepts(config)
         elif args.command == 'variations':
             exit_code = handle_list_variations(config, args)

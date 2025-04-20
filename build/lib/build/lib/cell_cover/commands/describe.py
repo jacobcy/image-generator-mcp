@@ -26,7 +26,7 @@ def handle_describe(args, logger, api_key):
             final_result = poll_for_result(logger, job_id, api_key)
             if final_result and final_result.get("prompt"):
                 generated_prompts_str = final_result.get("prompt", "")
-                generated_prompts = generated_prompts_str.strip().split('\\n')
+                generated_prompts = generated_prompts_str.strip().split('\n')
                 logger.info("Describe 任务完成，获取到生成的提示词。")
                 print("--- API 生成的提示词 ---")
                 for i, p in enumerate(generated_prompts):

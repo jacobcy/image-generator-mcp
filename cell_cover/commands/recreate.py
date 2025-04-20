@@ -3,10 +3,13 @@ import os
 import uuid
 import logging
 
-# 从 utils 导入必要的函数
-from ..utils.file_handler import find_initial_job_info, download_and_save_image, save_image_metadata
-from ..utils.image_uploader import process_cref_image # 注意路径
+# 从 utils 导入必要的函数 - 使用统一的元数据管理模块
+from ..utils.metadata_manager import find_initial_job_info, save_image_metadata
+# download_and_save_image now handles saving metadata via metadata_manager
+from ..utils.image_handler import download_and_save_image
+from ..utils.image_uploader import process_cref_image
 from ..utils.api import check_prompt, call_imagine_api, poll_for_result
+from ..utils.filesystem_utils import write_last_job_id, write_last_succeed_job_id
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +122,7 @@ def handle_recreate(args, config, logger, api_key):
                     )
                     logger.info(f"重新生成的图像和元数据已保存: {saved_path}")
                     print(f"重新生成的图像和元数据已保存: {saved_path}") # Keep user feedback
+                    write_last_succeed_job_id(logger, job_id)
                     return 0
                 else:
                     # Error should be logged by download_and_save_image
@@ -147,6 +151,7 @@ def handle_recreate(args, config, logger, api_key):
                           original_job_id # Link to original
                      )
                      logger.info(f"已保存重新生成任务 {job_id_for_save} 的基本元数据（无图像）。")
+                     write_last_job_id(logger, job_id)
                 return 1
         else: # Webhook provided
             logger.info("提供了 Webhook URL，重新生成任务将在后台处理。")
@@ -166,6 +171,7 @@ def handle_recreate(args, config, logger, api_key):
                 original_job_id # Link to original
             )
             logger.info(f"已保存重新生成任务 {job_id_for_save} 的初始元数据（无图像）。")
+            write_last_job_id(logger, job_id)
             return 0
     else: # Submit failed
         error_msg = "重新生成任务提交失败 (API 调用未返回 Job ID)"

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 
 def handle_list_concepts(config):
-    """处理 'list_concepts' 命令，列出所有可用的创意概念。"""
+    """处理 'list-concepts' 命令，列出所有可用的创意概念。"""
     print("可用的创意概念:")
     concepts = config.get("concepts", {})
     if not concepts:

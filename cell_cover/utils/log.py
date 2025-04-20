@@ -24,9 +24,9 @@ def setup_logging(log_dir_base, verbose=False):
 
     Args:
         log_dir_base: The base directory where the 'logs' subdirectory should be created.
-        verbose: If True, set log level to DEBUG, otherwise INFO.
+        verbose: If True, set log level to DEBUG, otherwise WARNING.
     """
-    log_level = logging.DEBUG if verbose else logging.INFO
+    log_level = logging.DEBUG if verbose else logging.WARNING
     log_format = (
         "%(asctime)s - "
         "%(levelname)s - "

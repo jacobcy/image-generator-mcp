@@ -11,7 +11,7 @@
             "variations": "scientific",
             "seed": null,
             "created_at": "2025-04-19T00:15:14.837282",
-            "status": "completed",
+            "status": "SUCCESS",
             "action": "imagine",
             "jobId": "e79852a5-87fe-4f06-8708-11cd945d9117",
             "progress": "100",
@@ -33,7 +33,7 @@
                 "variation4"
             ],
             "images": null,
-            "metadata_updated_at": "2025-04-20T20:39:48.925985"
+            "metadata_updated_at": "2025-04-20T17:44:18.912557"
         },
         {
             "id": "e7d439aa-691f-4511-b3ca-de2db99f9d68",
@@ -46,7 +46,7 @@
             "variations": "dramatic",
             "seed": null,
             "created_at": "2025-04-19T00:17:29.384160",
-            "status": "completed",
+            "status": "SUCCESS",
             "action": "imagine",
             "jobId": "84b845b7-0e52-4745-8d6a-bbaf9f107d9b",
             "progress": "100",
@@ -68,7 +68,7 @@
                 "variation4"
             ],
             "images": null,
-            "metadata_updated_at": "2025-04-20T20:39:48.927784"
+            "metadata_updated_at": "2025-04-20T17:44:21.508499"
         },
         {
             "id": "23456989-4e2b-4b39-b4d3-811495023db4",
@@ -81,7 +81,7 @@
             "variations": "dramatic",
             "seed": null,
             "created_at": "2025-04-19T00:20:52.688059",
-            "status": "completed",
+            "status": "SUCCESS",
             "action": "imagine",
             "jobId": "887ec0ac-1080-4522-96bd-80a73c5ed8e2",
             "progress": "100",
@@ -103,7 +103,7 @@
                 "variation4"
             ],
             "images": null,
-            "metadata_updated_at": "2025-04-20T20:39:48.929120"
+            "metadata_updated_at": "2025-04-20T17:44:24.223520"
         },
         {
             "id": "e9d2b834-9d09-476d-b572-b72e65c4641e",
@@ -116,7 +116,7 @@
             "variations": "detailed",
             "seed": null,
             "created_at": "2025-04-19T00:24:24.049064",
-            "status": "completed",
+            "status": "SUCCESS",
             "action": "imagine",
             "jobId": "8dbafede-3aaf-4a10-833d-953397817f81",
             "progress": "100",
@@ -138,7 +138,7 @@
                 "variation4"
             ],
             "images": null,
-            "metadata_updated_at": "2025-04-20T20:39:48.930862"
+            "metadata_updated_at": "2025-04-20T17:44:26.757390"
         },
         {
             "id": "a32884ea-77c1-4f37-bbb5-05c78e519596",
@@ -151,7 +151,7 @@
             "variations": "detailed",
             "seed": null,
             "created_at": "2025-04-19T00:34:06.465191",
-            "status": "completed",
+            "status": "SUCCESS",
             "action": "imagine",
             "jobId": "ee8a2439-596b-4cad-9d64-449ae0c69a40",
             "progress": "100",
@@ -173,7 +173,7 @@
                 "variation4"
             ],
             "images": null,
-            "metadata_updated_at": "2025-04-20T20:39:48.932868"
+            "metadata_updated_at": "2025-04-20T17:44:29.134356"
         },
         {
             "id": "1db3111f-d09f-45af-87ed-20dd66340a80",
@@ -186,7 +186,7 @@
             "variations": "dramatic",
             "seed": null,
             "created_at": "2025-04-19T00:37:04.208528",
-            "status": "completed",
+            "status": "SUCCESS",
             "action": "imagine",
             "jobId": "f978dd1b-6521-42bc-95b0-93982e0d7c15",
             "progress": "100",
@@ -208,7 +208,7 @@
                 "variation4"
             ],
             "images": null,
-            "metadata_updated_at": "2025-04-20T20:39:48.935084"
+            "metadata_updated_at": "2025-04-20T17:44:31.370542"
         },
         {
             "id": "7a0bc807-e918-4fa3-9573-df45fd110ca3",
@@ -221,7 +221,7 @@
             "variations": "network",
             "seed": null,
             "created_at": "2025-04-19T00:39:49.728283",
-            "status": "completed",
+            "status": "SUCCESS",
             "action": "imagine",
             "jobId": "e567b450-3e97-4913-bc96-067898ad5c6c",
             "progress": "100",
@@ -243,7 +243,7 @@
                 "variation4"
             ],
             "images": null,
-            "metadata_updated_at": "2025-04-20T20:39:48.936489"
+            "metadata_updated_at": "2025-04-20T17:44:33.848102"
         },
         {
             "id": "be17155f-d3ba-42b2-bf1b-303838540c60",
@@ -256,7 +256,7 @@
             "variations": "depth",
             "seed": null,
             "created_at": "2025-04-19T00:42:08.644134",
-            "status": "completed",
+            "status": "SUCCESS",
             "action": "imagine",
             "jobId": "8a6b35f6-76fd-45f2-bd0f-3f3e67e712c8",
             "progress": "100",
@@ -278,7 +278,7 @@
                 "variation4"
             ],
             "images": null,
-            "metadata_updated_at": "2025-04-20T20:39:48.937584"
+            "metadata_updated_at": "2025-04-20T17:44:36.065539"
         },
         {
             "id": "e4aa0984-6fa2-4832-a883-2d349f106051",
@@ -291,7 +291,7 @@
             "variations": "abstract",
             "seed": null,
             "created_at": "2025-04-19T00:46:22.580538",
-            "status": "completed",
+            "status": "SUCCESS",
             "action": "imagine",
             "jobId": "e8480bf8-655f-4acf-a437-c36fadbb71c2",
             "progress": "100",
@@ -313,7 +313,7 @@
                 "variation4"
             ],
             "images": null,
-            "metadata_updated_at": "2025-04-20T20:39:48.939180"
+            "metadata_updated_at": "2025-04-20T17:44:38.627485"
         },
         {
             "id": "da58bdc3-ba4a-4ac6-ade8-08c42bcfc634",
@@ -326,7 +326,7 @@
             "variations": "dynamic",
             "seed": null,
             "created_at": "2025-04-19T00:49:54.124989",
-            "status": "completed",
+            "status": "SUCCESS",
             "action": "imagine",
             "jobId": "19666a79-c2ec-4da6-980f-a6de585d0100",
             "progress": "100",
@@ -348,7 +348,7 @@
                 "variation4"
             ],
             "images": null,
-            "metadata_updated_at": "2025-04-20T20:39:48.940431"
+            "metadata_updated_at": "2025-04-20T17:44:41.419527"
         },
         {
             "id": "45df38a3-114f-41ab-bb2d-810477770129",
@@ -361,7 +361,7 @@
             "variations": "fluid",
             "seed": null,
             "created_at": "2025-04-19T00:53:58.453797",
-            "status": "completed",
+            "status": "SUCCESS",
             "action": "imagine",
             "jobId": "f0a62c5e-9ae1-4712-83af-1cc5837c37ca",
             "progress": "100",
@@ -383,7 +383,7 @@
                 "variation4"
             ],
             "images": null,
-            "metadata_updated_at": "2025-04-20T20:39:48.941424"
+            "metadata_updated_at": "2025-04-20T17:44:43.802550"
         },
         {
             "id": "9e70905e-32c2-4fdf-9c75-1d9837350ee7",
@@ -396,7 +396,7 @@
             "variations": "wave",
             "seed": null,
             "created_at": "2025-04-19T00:57:23.861514",
-            "status": "completed",
+            "status": "SUCCESS",
             "action": "imagine",
             "jobId": "2a0a035c-6e8e-4858-a396-4cb217836bd0",
             "progress": "100",
@@ -418,7 +418,7 @@
                 "variation4"
             ],
             "images": null,
-            "metadata_updated_at": "2025-04-20T20:39:48.943020"
+            "metadata_updated_at": "2025-04-20T17:44:46.626953"
         },
         {
             "id": "8ed16fd5-fbd9-4f11-9c72-b3b39e2229db",
@@ -431,7 +431,7 @@
             "variations": "data",
             "seed": null,
             "created_at": "2025-04-19T01:01:29.434042",
-            "status": "completed",
+            "status": "SUCCESS",
             "action": "imagine",
             "jobId": "966917cf-7256-4f4d-8008-6b0fd6f7725e",
             "progress": "100",
@@ -453,7 +453,7 @@
                 "variation4"
             ],
             "images": null,
-            "metadata_updated_at": "2025-04-20T20:39:48.944446"
+            "metadata_updated_at": "2025-04-20T17:44:49.043370"
         },
         {
             "id": "0cdc784e-c41a-4de1-8590-28e79e8109e5",
@@ -466,7 +466,7 @@
             "variations": "fractal",
             "seed": null,
             "created_at": "2025-04-19T01:04:34.922633",
-            "status": "completed",
+            "status": "SUCCESS",
             "action": "imagine",
             "jobId": "c373b805-3520-4dd7-8cfe-958c3b072c03",
             "progress": "100",
@@ -488,7 +488,7 @@
                 "variation4"
             ],
             "images": null,
-            "metadata_updated_at": "2025-04-20T20:39:48.945788"
+            "metadata_updated_at": "2025-04-20T17:44:51.641827"
         },
         {
             "id": "65756e63-09b9-4168-b731-978e9d1181b3",
@@ -500,7 +500,7 @@
             "concept": "unknown",
             "variations": "",
             "created_at": "2025-04-19T16:59:12.978399",
-            "status": "completed",
+            "status": "SUCCESS",
             "action": "imagine",
             "jobId": "87b73cd6-0416-4e17-ab80-38b4a16a09d2",
             "progress": "100",
@@ -523,7 +523,7 @@
             ],
             "seed": null,
             "images": null,
-            "metadata_updated_at": "2025-04-20T20:39:48.947387"
+            "metadata_updated_at": "2025-04-20T17:44:53.943716"
         },
         {
             "id": "8ca76014-6c60-4e75-9eae-a1806837a4e0",
@@ -535,7 +535,7 @@
             "concept": "cb2",
             "variations": "wave",
             "created_at": "2025-04-19T17:16:17.266365",
-            "status": "completed",
+            "status": "SUCCESS",
             "action": "imagine",
             "jobId": "f1013df2-8cc3-40b6-8c73-3959ae5acd41",
             "progress": "100",
@@ -558,7 +558,7 @@
             ],
             "seed": null,
             "images": null,
-            "metadata_updated_at": "2025-04-20T20:39:48.949098"
+            "metadata_updated_at": "2025-04-20T17:44:56.336632"
         },
         {
             "job_id": "cd94e4b0-7085-40b7-923a-7fd3406f42de",
@@ -590,7 +590,7 @@
             ],
             "seed": null,
             "images": null,
-            "metadata_updated_at": "2025-04-20T20:39:48.950746",
+            "metadata_updated_at": "2025-04-20T17:45:02.495379",
             "id": "db236b18-8a99-4361-ac9c-01e6d28854d2",
             "filename": "blend_blend_2020_03_18_1826562.jpeg,_cb3-data-palette_b_20250420_174458_cd94e4.png",
             "filepath": "/Users/chenyi/Library/Mobile Documents/com~apple~CloudDocs/paper/cell_cover/images/blend_blend_2020_03_18_1826562.jpeg,_cb3-data-palette_b_20250420_174458_cd94e4.png",
@@ -602,9 +602,7 @@
             "concept": "cc",
             "variations": "minimalist",
             "global_styles": "cinematic",
-            "created_at": "2025-04-19T20:37:26.643225",
-            "metadata_updated_at": "2025-04-20T20:39:48.951741",
-            "status": "unknown"
+            "created_at": "2025-04-19T20:37:26.643225"
         },
         {
             "job_id": "359c8f48-b5bf-4fc4-bc2f-e576505762e7",
@@ -636,7 +634,7 @@
             ],
             "seed": null,
             "images": null,
-            "metadata_updated_at": "2025-04-20T20:39:48.952668",
+            "metadata_updated_at": "2025-04-20T17:45:08.380605",
             "id": "a0f9891b-01e1-459a-b5eb-bb68dfad1ebb",
             "filename": "cc_Hyper-realistic_digital_artwork_depicting_a_comple_20250420_174504_359c8f.png",
             "filepath": "/Users/chenyi/Library/Mobile Documents/com~apple~CloudDocs/paper/cell_cover/images/cc_Hyper-realistic_digital_artwork_depicting_a_comple_20250420_174504_359c8f.png",
@@ -676,7 +674,7 @@
             ],
             "seed": null,
             "images": null,
-            "metadata_updated_at": "2025-04-20T20:39:48.954011"
+            "metadata_updated_at": "2025-04-20T17:45:13.631429"
         },
         {
             "id": "ca775511-ed5e-4539-91dc-f80c37795cae",
@@ -688,9 +686,7 @@
             "created_at": "2025-04-20T02:36:05.431307",
             "components": {
                 "status": "submitted_no_wait"
-            },
-            "metadata_updated_at": "2025-04-20T20:39:48.955968",
-            "status": "unknown"
+            }
         },
         {
             "id": "dafb83e4-d78f-46ab-b0e6-635f3de1efb0",
@@ -702,9 +698,7 @@
             "created_at": "2025-04-20T02:56:50.888142",
             "components": {
                 "status": "submitted_no_wait"
-            },
-            "metadata_updated_at": "2025-04-20T20:39:48.956887",
-            "status": "unknown"
+            }
         },
         {
             "id": "c2c758cd-f96d-44ed-bd6f-387a05b6de9e",
@@ -718,7 +712,7 @@
             "global_styles": "",
             "status": "completed",
             "created_at": "2025-04-20T08:22:25.167310",
-            "metadata_updated_at": "2025-04-20T20:39:48.957927"
+            "metadata_updated_at": "2025-04-20T08:22:25.183523"
         },
         {
             "id": "37df13bc-010f-4a91-a733-8efd17234b3b",
@@ -752,7 +746,7 @@
             "hookUrl": null,
             "seed": null,
             "images": null,
-            "metadata_updated_at": "2025-04-20T20:39:48.959156",
+            "metadata_updated_at": "2025-04-20T17:45:20.782125",
             "filename": "action_Action_variation4_on_0b53c5ba-619c-4367-b03a-f0a6_20250420_174516_531cce.png",
             "filepath": "/Users/chenyi/Library/Mobile Documents/com~apple~CloudDocs/paper/cell_cover/images/action_Action_variation4_on_0b53c5ba-619c-4367-b03a-f0a6_20250420_174516_531cce.png",
             "url": "https://mjcdn.ttapi.io/attachments/1136550243601748031/1363309607845367949/willowtitus907207_Hyper-realistic_digital_artwork_depicting_a_c_d818cec2-aa29-4d3b-b351-0f302b10903e.png?ex=68059083&is=68043f03&hm=2665392ad54db0bef6618992e5c83a520666d0bc320b12a9e6953c5d0273a4bc&"
@@ -789,7 +783,7 @@
             "hookUrl": null,
             "seed": null,
             "images": null,
-            "metadata_updated_at": "2025-04-20T20:39:48.960228",
+            "metadata_updated_at": "2025-04-20T17:45:25.420016",
             "filename": "action_Action_variation4_on_0b53c5ba-619c-4367-b03a-f0a6_20250420_174521_5f5509.png",
             "filepath": "/Users/chenyi/Library/Mobile Documents/com~apple~CloudDocs/paper/cell_cover/images/action_Action_variation4_on_0b53c5ba-619c-4367-b03a-f0a6_20250420_174521_5f5509.png",
             "url": "https://mjcdn.ttapi.io/attachments/1136550243601748031/1363310593653604422/willowtitus907207_Hyper-realistic_digital_artwork_depicting_a_c_55cbfab3-ab66-4744-a2c2-325dc2043b8b.png?ex=6805916e&is=68043fee&hm=bce99d9c21effd8d66530cb2d045da87b1c7f635ad7e43c4ef569bc5ba6a096f&"
@@ -806,7 +800,7 @@
             "global_styles": "palette_bw_gold",
             "status": "completed",
             "created_at": "2025-04-20T08:32:52.052664",
-            "metadata_updated_at": "2025-04-20T20:39:48.961113"
+            "metadata_updated_at": "2025-04-20T08:32:52.174943"
         },
         {
             "id": "4faac17b-960f-4603-96de-a26ad4a91a22",
@@ -820,7 +814,7 @@
             "global_styles": "palette_bw_gold",
             "status": "completed",
             "created_at": "2025-04-20T08:35:39.497769",
-            "metadata_updated_at": "2025-04-20T20:39:48.962091"
+            "metadata_updated_at": "2025-04-20T08:35:39.512069"
         },
         {
             "id": "2a0491d3-2b2f-4640-8085-169fdc72488f",
@@ -835,8 +829,7 @@
             "original_job_id": "abc520eb-83dd-47db-9a1b-50e38d744ac1",
             "action_code": "upsample3",
             "status": "completed",
-            "created_at": "2025-04-20T08:39:48.387966",
-            "metadata_updated_at": "2025-04-20T20:39:48.962992"
+            "created_at": "2025-04-20T08:39:48.387966"
         },
         {
             "id": "ea600219-a60a-4fc8-ba51-48c8e1affe84",
@@ -854,7 +847,7 @@
             "progress": "100",
             "url": "https://mjcdn.ttapi.io/attachments/1136550243601748031/1363314782551281794/willowtitus907207_Hyper-realistic_digital_artwork_depicting_a_c_6d56b3ac-4e81-451c-ab9c-855d750460b9.png?ex=68059555&is=680443d5&hm=3d7f7d70383b24767a338c3493689bfc236f0c0380cf3b5e2f00115965523ab8&",
             "seed": null,
-            "metadata_updated_at": "2025-04-20T20:39:48.964130",
+            "metadata_updated_at": "2025-04-20T17:34:46.301601",
             "filename": "action_Action_variation4_on_0b53c5ba-619c-4367-b03a-f0a6_20250420_173443_1eeee0.png",
             "filepath": "/Users/chenyi/Library/Mobile Documents/com~apple~CloudDocs/paper/cell_cover/images/action_Action_variation4_on_0b53c5ba-619c-4367-b03a-f0a6_20250420_173443_1eeee0.png"
         }

@@ -65,7 +65,7 @@ def handle_generate(args, config, logger):
         log_func("错误：无法生成提示词文本。")
         return 1 # Return exit code 1
 
-    # logger.info(f"生成的提示词:\\n---\\n{prompt_text}\\n---")
+    # logger.info(f"生成的提示词:\n---\n{prompt_text}\n---")
     print(f'''Generated Prompt:
 ---
 {prompt_text}

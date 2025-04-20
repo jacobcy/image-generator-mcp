@@ -40,7 +40,7 @@ def handle_view(args, logger, api_key):
     print(f"正在从 API 获取任务 {job_id} 的最新状态...")
     latest_result = poll_for_result(logger, job_id, api_key)
 
-    print("\\n--- 任务详情 ---")
+    print("\n--- 任务详情 ---")
     print(f"  标识符:     {args.identifier}")
     if job_id: print(f"  Job ID:     {job_id}")
 

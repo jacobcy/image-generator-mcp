@@ -277,7 +277,8 @@ def call_action_api(
     api_key: str,
     original_job_id: str,
     action: str,
-    hook_url: Optional[str] = None
+    hook_url: Optional[str] = None,
+    mode: Optional[str] = None
 ) -> Optional[str]:
     """调用 TTAPI 的 /action 接口执行操作（放大、变体等）
 
@@ -287,6 +288,7 @@ def call_action_api(
         original_job_id: 原始任务ID
         action: 操作类型 (U1-U4, V1-V4)
         hook_url: 可选的回调 URL
+        mode: 可选的操作模式
 
     Returns:
         Optional[str]: 成功时返回新任务ID，失败时返回 None
@@ -302,9 +304,15 @@ def call_action_api(
     }
     if hook_url:
         payload["hookUrl"] = hook_url
+    if mode:
+        payload["mode"] = mode
 
+    # Log the final payload before sending
+    logger.debug(f"发送到 /action 的 Payload: {json.dumps(payload)}")
+    
     try:
         response = requests.post(endpoint, headers=headers, json=payload, timeout=30)
+        # Check for HTTP errors
         response.raise_for_status()
         result = response.json()
 
@@ -317,12 +325,41 @@ def call_action_api(
                 logger.error("API 报告成功但未返回新任务 ID")
                 return None
         else:
+            # Handle application-level failure reported by API
             error_message = result.get("message", "未知错误")
-            logger.error(f"操作 {action} 失败: {error_message}")
+            logger.error(f"操作 {action} 失败 (API Status != SUCCESS): {error_message}")
+            logger.debug(f"Full API failure response: {result}") # Log full response on failure
+            print(f"错误：操作 {action} 失败 - {error_message}")
             return None
 
+    except requests.exceptions.Timeout as e:
+        logger.error(f"调用 /action API 超时: {e}")
+        print(f"错误：调用 /action API 超时。")
+        return None
+    except requests.exceptions.RequestException as e:
+        # Log detailed HTTP error if response is available
+        error_msg = f"调用 /action API 时发生网络错误: {e}"
+        if e.response is not None:
+            error_msg += f" | Status Code: {e.response.status_code}"
+            try:
+                # Try to get JSON error details
+                response_json = e.response.json()
+                error_msg += f" | Response: {json.dumps(response_json)}"
+            except json.JSONDecodeError:
+                # Fallback to raw text if not JSON
+                error_msg += f" | Response: {e.response.text}"
+        logger.error(error_msg)
+        print(f"错误：API 请求失败，请检查日志获取详细信息。 ({e})") # User-friendly message
+        return None
+    except json.JSONDecodeError as e:
+        logger.error(f"无法解析 /action API 响应 (非 JSON): {e}")
+        if 'response' in locals() and response:
+             logger.error(f"原始响应文本: {response.text}")
+        print("错误：API 响应格式无效。")
+        return None
     except Exception as e:
-        logger.error(f"调用 /action API 时发生错误: {e}")
+        logger.error(f"调用 /action API 时发生意外错误: {e}", exc_info=True)
+        print(f"错误：处理 /action API 请求时发生意外错误。")
         return None
 
 def fetch_seed_from_ttapi(

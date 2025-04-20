@@ -5,9 +5,11 @@ import mimetypes
 import logging
 import uuid
 
-# 从 utils 导入必要的函数
-from ..utils.api import call_blend_api, poll_for_result
-from ..utils.file_handler import download_and_save_image, save_image_metadata
+# 从 utils 导入必要的函数 - 使用统一的元数据管理模块
+from ..utils.metadata_manager import save_image_metadata
+from ..utils.api import call_blend_api, poll_for_result, normalize_api_response
+# download_and_save_image now handles saving metadata via metadata_manager
+from ..utils.image_handler import download_and_save_image
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,10 @@ def handle_blend(args, config, logger, api_key):
             if final_result and final_result.get("cdnImage"): # Use cdnImage
                 image_url = final_result.get("cdnImage")
                 logger.info(f"混合任务完成，图像 URL: {image_url}")
+                
+                # 标准化API结果
+                normalized_result = normalize_api_response(logger, final_result)
+                
                 download_success, saved_path, image_seed = download_and_save_image(
                     logger,
                     image_url,
@@ -73,23 +79,24 @@ def handle_blend(args, config, logger, api_key):
                     None, # global_styles
                     None, # original_job_id
                     None, # action_code
-                    final_result.get("components"),
-                    final_result.get("seed")
+                    None, # Components removed
+                    normalized_result.get("seed") # Use seed from normalized
                 )
                 if download_success:
                     seed_for_save = image_seed
+                    # 使用标准化结果保存元数据
                     save_image_metadata(
                         logger,
-                        final_result.get("image_id", str(uuid.uuid4())),
+                        normalized_result.get("id", str(uuid.uuid4())), # Use id from normalized if available
                         job_id_for_save,
                         os.path.basename(saved_path),
                         saved_path,
-                        image_url,
+                        normalized_result.get("url"), # Use url from normalized
                         prompt_text_for_save,
                         "blend", # concept
                         None, # variations
                         None, # global_styles
-                        final_result.get("components"),
+                        None, # Components removed
                         seed_for_save,
                         None # original_job_id
                     )
@@ -105,6 +112,8 @@ def handle_blend(args, config, logger, api_key):
                 logger.error(f"轮询混合任务结果失败或未获取到图像 URL。最后状态: {status}")
                 print(f"错误：轮询混合任务结果失败或未获取到图像 URL。最后状态: {status}")
                 if job_id_for_save:
+                     # 标准化结果用于保存基本元数据
+                     normalized_result = normalize_api_response(logger, final_result or {})
                      save_image_metadata(
                         logger,
                         None, # No image_id
@@ -114,7 +123,7 @@ def handle_blend(args, config, logger, api_key):
                         None, # url
                         prompt_text_for_save,
                         "blend",
-                        None, None, None, None, None # variations, styles, components, seed, original_job_id
+                        None, None, None, normalized_result.get("seed"), None # variations, styles, components, seed, original_job_id
                     )
                      logger.info(f"已保存混合任务 {job_id_for_save} 的基本元数据（无图像）。")
                 return 1
