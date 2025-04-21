@@ -13,6 +13,7 @@ except ImportError:
 
 # 从 utils 导入必要的函数
 from ..utils.prompt import generate_prompt_text, save_text_prompt, copy_to_clipboard
+from ..utils.file_handler import OUTPUT_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -31,8 +32,8 @@ def handle_generate(args, config, logger):
             args.style,      # Correct arg 5: global_style_keys
             args.aspect,     # Correct arg 6: aspect_ratio
             args.quality,    # Correct arg 7: quality
-            args.version     # Correct arg 8: version
-            # cref is not used in generate command
+            args.version,    # Correct arg 8: version
+            args.cref        # Correct arg 9: cref_url
         )
         concept_key_for_save = args.concept # Store concept key for saving filename
     elif args.prompt:
@@ -66,14 +67,16 @@ def handle_generate(args, config, logger):
         return 1 # Return exit code 1
 
     # logger.info(f"生成的提示词:\n---\n{prompt_text}\n---")
+    # 如果 prompt_text 是字典，则只打印 prompt 字段
+    display_text = prompt_text["prompt"] if isinstance(prompt_text, dict) else prompt_text
     print(f'''Generated Prompt:
 ---
-{prompt_text}
+{display_text}
 ---''')
 
     if args.clipboard:
         if PYPERCLIP_AVAILABLE:
-            copy_to_clipboard(prompt_text)
+            copy_to_clipboard(logger, display_text)
             logger.info("提示词已复制到剪贴板。")
         else:
             # Use logger if available, otherwise print
@@ -82,7 +85,7 @@ def handle_generate(args, config, logger):
     if args.save_prompt:
         # Use concept key if available, otherwise generate a filename
         filename_base = concept_key_for_save if concept_key_for_save else f"prompt_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        save_success = save_text_prompt(prompt_text, filename_base)
+        save_success = save_text_prompt(logger, OUTPUT_DIR, display_text, filename_base)
         if save_success:
             logger.info(f"提示词已保存到文件: {filename_base}.txt")
         else:

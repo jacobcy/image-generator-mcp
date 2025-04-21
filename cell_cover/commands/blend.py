@@ -10,6 +10,8 @@ from ..utils.metadata_manager import save_image_metadata
 from ..utils.api import call_blend_api, poll_for_result, normalize_api_response
 # download_and_save_image now handles saving metadata via metadata_manager
 from ..utils.image_handler import download_and_save_image
+from ..utils.image_metadata import load_all_metadata, _build_metadata_index
+from ..utils.metadata_manager import _generate_expected_filename
 
 logger = logging.getLogger(__name__)
 

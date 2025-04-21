@@ -2,14 +2,17 @@
 import os
 import uuid
 import logging
+from typing import Optional
 
 # 从 utils 导入必要的函数 - 使用统一的元数据管理模块
 from ..utils.metadata_manager import find_initial_job_info, save_image_metadata
 # download_and_save_image now handles saving metadata via metadata_manager
 from ..utils.image_handler import download_and_save_image
 from ..utils.image_uploader import process_cref_image
-from ..utils.api import check_prompt, call_imagine_api, poll_for_result
+from ..utils.api import check_prompt, call_imagine_api, poll_for_result, normalize_api_response
 from ..utils.filesystem_utils import write_last_job_id, write_last_succeed_job_id
+from ..utils.image_metadata import load_all_metadata, _build_metadata_index
+from ..utils.metadata_manager import _generate_expected_filename
 
 logger = logging.getLogger(__name__)
 
@@ -89,45 +92,69 @@ def handle_recreate(args, config, logger, api_key):
             final_result = poll_for_result(logger, job_id, api_key)
             if final_result and final_result.get("image_url"): # Use image_url
                 logger.info(f"重新生成任务完成，图像 URL: {final_result['image_url']}")
-                download_success, saved_path, image_seed = download_and_save_image(
-                    logger,
-                    final_result["image_url"],
-                    job_id,
-                    prompt_text_for_save,
-                    concept_key_for_save,
-                    None, # variations
-                    None, # styles
-                    original_job_id, # Pass original job ID
-                    None, # action_code
-                    final_result.get("components"),
-                    final_result.get("seed"),
-                    prefix="recreate_" # Add prefix
-                )
-                if download_success:
-                    final_seed = image_seed if image_seed is not None else seed_for_save
-                    save_image_metadata(
+                # 标准化结果用于保存和命名
+                normalized_result = normalize_api_response(logger, final_result)
+                normalized_result['job_id'] = job_id # Ensure job_id is in the dict
+                normalized_result['original_job_id'] = original_job_id # Record original job for tracing
+                normalized_result['prefix'] = "recreate_" # <--- Add prefix for naming
+                
+                # --- 生成期望的文件名 --- #
+                try:
+                    # 加载元数据以构建索引
+                    all_tasks = load_all_metadata(logger)
+                    all_tasks_index = _build_metadata_index(all_tasks)
+                    # 传递 normalized_result (包含 prefix)
+                    expected_filename = _generate_expected_filename(logger, normalized_result, all_tasks_index)
+                except Exception as e:
+                    logger.error(f"为任务 {job_id} 生成期望文件名时出错: {e}，将使用 job_id 作为备用名。")
+                    expected_filename = f"recreate_{job_id}.png"
+                # ---------------------- #
+
+                image_url = normalized_result.get('url')
+                if image_url:
+                    logger.info("下载图像...")
+                    download_success, saved_path, image_seed = download_and_save_image(
                         logger,
-                        final_result.get("image_id", str(uuid.uuid4())),
-                        job_id_for_save,
-                        os.path.basename(saved_path),
-                        saved_path,
-                        final_result["image_url"],
-                        prompt_text_for_save,
-                        concept_key_for_save,
-                        None, # variations
-                        None, # styles
-                        final_result.get("components"),
-                        final_seed,
-                        original_job_id # Link to original
+                        image_url,
+                        job_id, # New job ID
+                        normalized_result.get('prompt'),
+                        expected_filename, # <--- Pass generated filename
+                        normalized_result.get('concept'),
+                        normalized_result.get('variations'),
+                        normalized_result.get('global_styles'),
+                        original_job_id, # Pass original job ID
+                        None, # action_code is None for recreate
+                        None, # components
+                        normalized_result.get('seed')
+                        # original_concept (handled by generator)
+                        # prefix (handled by generator)
                     )
-                    logger.info(f"重新生成的图像和元数据已保存: {saved_path}")
-                    print(f"重新生成的图像和元数据已保存: {saved_path}") # Keep user feedback
-                    write_last_succeed_job_id(logger, job_id)
-                    return 0
-                else:
-                    # Error should be logged by download_and_save_image
-                    # print("错误：重新生成的图像下载或保存失败。") # Redundant if logged in util
-                    return 1
+
+                    if download_success:
+                        final_seed = image_seed if image_seed is not None else seed_for_save
+                        save_image_metadata(
+                            logger,
+                            final_result.get("image_id", str(uuid.uuid4())),
+                            job_id_for_save,
+                            os.path.basename(saved_path),
+                            saved_path,
+                            final_result["image_url"],
+                            prompt_text_for_save,
+                            concept_key_for_save,
+                            None, # variations
+                            None, # styles
+                            final_result.get("components"),
+                            final_seed,
+                            original_job_id # Link to original
+                        )
+                        logger.info(f"重新生成的图像和元数据已保存: {saved_path}")
+                        print(f"重新生成的图像和元数据已保存: {saved_path}") # Keep user feedback
+                        write_last_succeed_job_id(logger, job_id)
+                        return 0
+                    else:
+                        # Error should be logged by download_and_save_image
+                        # print("错误：重新生成的图像下载或保存失败。") # Redundant if logged in util
+                        return 1
             else:
                 status = final_result.get('status') if final_result else 'N/A'
                 # Construct the message string separately

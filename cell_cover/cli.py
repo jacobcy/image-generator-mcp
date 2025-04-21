@@ -21,6 +21,49 @@ from .commands.recreate import handle_recreate
 from .commands.select import handle_select
 from .commands.view import handle_view
 from .commands.action import handle_action
+# Import list_tasks handler and its subparser function
+from .commands.list_tasks import add_subparser as add_list_tasks_subparser, handle_list_tasks
+
+# 定义可用的 action 代码
+# Based on ttapi.md section 2: /action
+ACTION_CHOICES = [
+    'upsample1', 'upsample2', 'upsample3', 'upsample4',
+    'variation1', 'variation2', 'variation3', 'variation4',
+    'high_variation', 'low_variation',
+    'upscale2', 'upscale4',
+    'zoom_out_2', 'zoom_out_1_5',
+    'pan_left', 'pan_right', 'pan_up', 'pan_down',
+    'upscale_creative', 'upscale_subtle',
+    'reroll',
+    'redo_upscale2', 'redo_upscale4',
+    'make_square',
+    'redo_upscale_subtle', 'redo_upscale_creative'
+]
+# Add descriptions based on ttapi.md
+ACTION_DESCRIPTIONS = {
+    'upsample1': '放大第 1 张图像 (U1)',
+    'upsample2': '放大第 2 张图像 (U2)',
+    'upsample3': '放大第 3 张图像 (U3)',
+    'upsample4': '放大第 4 张图像 (U4)',
+    'variation1': '基于第 1 张图像生成变体 (V1)',
+    'variation2': '基于第 2 张图像生成变体 (V2)',
+    'variation3': '基于第 3 张图像生成变体 (V3)',
+    'variation4': '基于第 4 张图像生成变体 (V4)',
+    'high_variation': '对放大后的图像进行大幅度变化 (Vary Strong)',
+    'low_variation': '对放大后的图像进行小幅度变化 (Vary Subtle)',
+    'upscale2': '将放大后的图像再放大 2 倍 (v5版本)',
+    'upscale4': '将放大后的图像再放大 4 倍 (v5版本)',
+    'zoom_out_2': '将放大后的图像缩小 2 倍 (Zoom Out 2x)',
+    'zoom_out_1_5': '将放大后的图像缩小 1.5 倍 (Zoom Out 1.5x)',
+    'pan_left': '向左平移扩展图像 (Pan Left)',
+    'pan_right': '向右平移扩展图像 (Pan Right)',
+    'pan_up': '向上平移扩展图像 (Pan Up)',
+    'pan_down': '向下平移扩展图像 (Pan Down)',
+    'upscale_creative': '使用创意模式放大图像 (Upscale Creative)',
+    'upscale_subtle': '使用微妙模式放大图像 (Upscale Subtle)',
+    'reroll': '基于相同提示词重新生成一组图像 (Reroll)',
+    'make_square': '将非方形图像裁剪/扩展为方形 (Make Square)'
+}
 
 # Import the new handler (will be created next)
 # from .commands.list-tasks import handle_list_tasks
@@ -41,21 +84,21 @@ def main():
         action="store_true",
         help="Enable verbose logging (DEBUG level)",
     )
-    
+
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
-    
+
     # List concepts command with alias
     list_parser = subparsers.add_parser(
         "list-concepts",
         help="列出所有可用的创意概念"
     )
-    
+
     # Help command
     help_parser = subparsers.add_parser(
         "help",
         help="显示帮助信息"
     )
-    
+
     # --- variations 命令 ---
     parser_variations = subparsers.add_parser('variations', help='列出指定概念的所有变体')
     parser_variations.add_argument('concept_key', type=str, help='要查询变体的创意概念键')
@@ -138,64 +181,17 @@ def main():
     describe_parser.add_argument('--save', action='store_true', help='将描述保存到元数据文件')
     describe_parser.add_argument('--language', help='描述的语言，例如"zh-CN"')
 
-    # --- list-tasks 命令 (NEW) ---
-    list_tasks_parser = subparsers.add_parser('list-tasks', 
-                                         aliases=["list"], 
-                                         help='列出最近的生成任务', 
-                                         description='列出最近的生成任务')
-    list_tasks_parser.add_argument('-n', '--num', type=int, default=10, help='要显示的任务数量（默认：10）')
-    list_tasks_parser.add_argument('--status', choices=['all', 'success', 'failed', 'pending'], default='all', help='筛选任务状态')
-    list_tasks_parser.add_argument('--sort', choices=['time', 'status', 'concept'], default='time', help='排序标准')
-    list_tasks_parser.add_argument('--concept', help='按概念名称筛选任务')
-    list_tasks_parser.add_argument('--action', help='按动作代码筛选任务')
-    list_tasks_parser.add_argument('--image-only', action='store_true', help='仅显示成功生成了图像的任务')
-    list_tasks_parser.add_argument('--sync', action='store_true', help='自动同步本地数据库中状态不确定的任务')
-    list_tasks_parser.add_argument('-v', '--verbose', action='store_true', help='显示详细的调试日志')
+    # --- list 命令 (使用导入的 subparser 函数) ---
+    add_list_tasks_subparser(subparsers)
 
     # --- action 命令 (NEW) ---
-    # Based on ttapi.md section 2: /action
-    ACTION_CHOICES = [
-        'upsample1', 'upsample2', 'upsample3', 'upsample4',
-        'variation1', 'variation2', 'variation3', 'variation4',
-        'high_variation', 'low_variation',
-        'upscale2', 'upscale4',
-        'zoom_out_2', 'zoom_out_1_5',
-        'pan_left', 'pan_right', 'pan_up', 'pan_down',
-        'upscale_creative', 'upscale_subtle',
-        'reroll',
-        'redo_upscale2', 'redo_upscale4',
-        'make_square',
-        'redo_upscale_subtle', 'redo_upscale_creative'
-    ]
-    # Add descriptions based on ttapi.md
-    ACTION_DESCRIPTIONS = {
-        'upsample1': '放大第 1 张图像 (U1)',
-        'upsample2': '放大第 2 张图像 (U2)',
-        'upsample3': '放大第 3 张图像 (U3)',
-        'upsample4': '放大第 4 张图像 (U4)',
-        'variation1': '基于第 1 张图像生成变体 (V1)',
-        'variation2': '基于第 2 张图像生成变体 (V2)',
-        'variation3': '基于第 3 张图像生成变体 (V3)',
-        'variation4': '基于第 4 张图像生成变体 (V4)',
-        'reroll': '基于相同提示词重新生成一组图像 (Reroll)',
-        'high_variation': '对放大后的图像进行大幅度变化 (Vary Strong)',
-        'low_variation': '对放大后的图像进行小幅度变化 (Vary Subtle)',
-        'upscale_creative': '使用创意模式放大图像 (Upscale Creative)',
-        'upscale_subtle': '使用微妙模式放大图像 (Upscale Subtle)',
-        'make_square': '将非方形图像裁剪/扩展为方形 (Make Square)',
-        'upscale2': '将放大后的图像再放大 2 倍 (v5版本)',
-        'upscale4': '将放大后的图像再放大 4 倍 (v5版本)',
-        'zoom_out_2': '将放大后的图像缩小 2 倍 (Zoom Out 2x)',
-        'zoom_out_1_5': '将放大后的图像缩小 1.5 倍 (Zoom Out 1.5x)',
-        'pan_left': '向左平移扩展图像 (Pan Left)',
-        'pan_right': '向右平移扩展图像 (Pan Right)',
-        'pan_up': '向上平移扩展图像 (Pan Up)',
-        'pan_down': '向下平移扩展图像 (Pan Down)'
-    }
+    # 使用模块级别定义的 ACTION_CHOICES 和 ACTION_DESCRIPTIONS
 
     action_parser = subparsers.add_parser('action', help='对现有结果应用操作（变体、放大等）',
                                         description='对现有结果应用操作（变体、放大等）')
-    action_parser.add_argument('action_code', help='要应用的操作，例如 "variation1"')
+    action_code_group = action_parser.add_mutually_exclusive_group(required=True)
+    action_code_group.add_argument('action_code', nargs='?', help='要应用的操作，例如 "variation1"')
+    action_code_group.add_argument("--list", action="store_true", help="列出所有可用的操作代码并退出。")
     action_group = action_parser.add_mutually_exclusive_group()
     action_group.add_argument('identifier', nargs='?', help='任务 ID 或图像文件路径')
     action_group.add_argument('--last-job', action='store_true', help='使用上一个提交的任务 ID')
@@ -204,20 +200,19 @@ def main():
     action_parser.add_argument("--wait", action="store_true", help="提交操作后等待任务完成并下载结果 (如果适用)。")
     action_parser.add_argument("-m", "--mode", type=str, default="fast", choices=["relax", "fast", "turbo"],
                       help="生成模式 (默认: fast)")
-    action_parser.add_argument("--list", action="store_true", help="列出所有可用的操作代码并退出。")
     action_parser.add_argument("-v", "--verbose", action="store_true", help="显示详细的调试日志")
 
     # Parse arguments
     args = parser.parse_args()
-    
+
     # Setup logging with verbose flag
     logger = setup_logging(CELL_COVER_DIR, args.verbose)
-    
+
     # Handle help command or no command
     if args.command == "help" or args.command is None:
         parser.print_help()
         return
-    
+
     # Handle list-concepts command
     if args.command == "list-concepts":
         config_path = os.path.join(CELL_COVER_DIR, 'prompts_config.json')
@@ -228,7 +223,7 @@ def main():
             logger.error("无法加载配置文件")
             sys.exit(1)
         return
-    
+
     # --- Initialization ---
     config_path = os.path.join(CELL_COVER_DIR, 'prompts_config.json')
     config = load_config(logger, config_path)
@@ -238,7 +233,10 @@ def main():
 
     api_key = get_api_key(logger)
     commands_requiring_api_key = ['create', 'recreate', 'view', 'blend', 'describe', 'action']
-    if not api_key and args.command in commands_requiring_api_key:
+    # 如果是 action --list 命令，不需要 API 密钥
+    if args.command == 'action' and args.list:
+        pass  # 不需要 API 密钥
+    elif not api_key and args.command in commands_requiring_api_key:
         logger.critical(f"命令 '{args.command}' 需要 TTAPI_API_KEY 环境变量或 .env 文件中的条目。")
         sys.exit(1)
 
@@ -250,7 +248,6 @@ def main():
 
     # --- Command Dispatch ---
     exit_code = 1  # Default exit code
-    job_id_for_action = None  # Variable to hold the determined job ID for action command
 
     try:
         if args.command == 'variations':
@@ -324,10 +321,18 @@ def main():
             exit_code = handle_blend(args, config, logger, api_key)
         elif args.command == 'describe':
             exit_code = handle_describe(args, logger, api_key)
-        elif args.command == 'list-tasks' or args.command == 'list':
-            from .commands.list_tasks import handle_list_tasks
+        elif args.command == 'list' or args.command == 'list-tasks':
             exit_code = handle_list_tasks(args, logger)
         elif args.command == 'action':
+            # --- 处理 --list 选项 ---
+            if args.list:
+                # 显示所有可用的操作代码
+                print("可用的操作代码:")
+                for action_code in ACTION_CHOICES:
+                    description = ACTION_DESCRIPTIONS.get(action_code, "无描述")
+                    print(f"  {action_code}: {description}")
+                return 0
+
             # --- Action Command Identifier Resolution ---
             identifier_to_use = None
             source_description = ""
@@ -354,6 +359,11 @@ def main():
             logger.info(f"使用 {source_description}: {identifier_to_use}")
 
             from .commands.action import handle_action
+            # 确保 api_key 不为 None
+            if api_key is None:
+                logger.critical("错误：执行 action 命令需要 API 密钥。")
+                sys.exit(1)
+
             exit_code = handle_action(
                 args.action_code,
                 identifier_to_use,

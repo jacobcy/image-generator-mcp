@@ -10,6 +10,8 @@ from ..utils.metadata_manager import find_initial_job_info, save_image_metadata
 from ..utils.image_handler import download_and_save_image
 from ..utils.api import poll_for_result, call_action_api, normalize_api_response
 from ..utils.filesystem_utils import write_last_job_id, write_last_succeed_job_id
+from ..utils.image_metadata import load_all_metadata, _build_metadata_index
+from ..utils.metadata_manager import _generate_expected_filename
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,24 @@ def is_likely_job_id(identifier):
 def handle_action(action_code: str, job_id_or_identifier: str, hook_url: Optional[str], wait: bool, mode: str, logger: logging.Logger, api_key: str) -> int:
     """处理 'action' 命令，对现有任务执行操作。"""
     logger.info(f"开始处理 'action' 命令: action='{action_code}', identifier='{job_id_or_identifier}', wait={wait}, mode={mode}")
+
+    # 导入允许的 action_code 列表
+    from ..cli import ACTION_CHOICES, ACTION_DESCRIPTIONS
+
+    # 验证 action_code 是否在允许的列表中
+    if action_code not in ACTION_CHOICES:
+        logger.error(f"错误的 action code: '{action_code}'。请使用 'action --list' 查看所有可用的操作代码。")
+        print(f"错误: '{action_code}' 不是有效的操作代码。")
+
+        # 尝试找到相似的 action_code 作为建议
+        import difflib
+        close_matches = difflib.get_close_matches(action_code, ACTION_CHOICES, n=3, cutoff=0.6)
+        if close_matches:
+            suggestions = ', '.join([f"'{match}' ({ACTION_DESCRIPTIONS.get(match, '无描述')})" for match in close_matches])
+            print(f"您是否想要使用以下操作代码之一? {suggestions}")
+
+        print("使用 'crc action --list' 查看所有可用的操作代码。")
+        return 1
 
     original_job_id = None
     original_job_info = None # Store original info for later use if waiting
@@ -86,35 +106,40 @@ def handle_action(action_code: str, job_id_or_identifier: str, hook_url: Optiona
             if final_result and final_result.get(image_url_key):
                 image_url = final_result.get(image_url_key)
                 logger.info(f"任务 {new_job_id} 完成，图像 URL: {image_url}")
-                
+
                 # 标准化API结果，以便保存
                 normalized_result = normalize_api_response(logger, final_result)
+                normalized_result['job_id'] = new_job_id # Ensure job_id is in the dict
+                normalized_result['original_job_id'] = original_job_id # Ensure original job ID is recorded
+                normalized_result['action_code'] = action_code # Ensure action code is recorded
 
-                # Prepare info needed for download/metadata from original job
-                prompt_text_for_save = original_job_info.get("prompt", f"Action: {action_code} on {original_job_id}") if original_job_info else f"Action: {action_code} on {original_job_id}"
-                # concept_key_for_save = original_job_info.get("concept") if original_job_info and original_job_info.get("concept") else "unknown"
-                # 传递原始 concept 给 download_and_save_image 以便生成正确文件名
-                original_concept_for_naming = original_job_info.get("concept") if original_job_info else None
-                # 但保存元数据时，action 任务本身的 concept 仍然是 action
-                concept_key_for_metadata = "action" 
-                
-                logger.info(f"原始 Concept (用于命名): {original_concept_for_naming}")
-                variations_keys = original_job_info.get("variations", []) if original_job_info else []
-                styles_keys = original_job_info.get("global_styles", []) if original_job_info else []
+                # --- 生成期望的文件名 --- #
+                try:
+                    # 加载元数据以构建索引
+                    all_tasks = load_all_metadata(logger)
+                    all_tasks_index = _build_metadata_index(all_tasks)
+                    # 传递 normalized_result (包含 action_code 和 original_job_id)
+                    expected_filename = _generate_expected_filename(logger, normalized_result, all_tasks_index)
+                except Exception as e:
+                    logger.error(f"为任务 {new_job_id} 生成期望文件名时出错: {e}，将使用 job_id 作为备用名。")
+                    expected_filename = f"action_{new_job_id}.png"
+                # ---------------------- #
 
                 download_success, saved_path, image_seed = download_and_save_image(
                     logger,
                     image_url,
                     new_job_id, # Use the NEW job ID
-                    prompt_text_for_save, # Use original prompt or derived
-                    concept=concept_key_for_metadata, # Save 'action' as concept in metadata
-                    variations=variations_keys, # Use original variations
-                    styles=styles_keys, # Use original styles
-                    original_job_id=original_job_id, # Link to the original job ID that this action was performed on
-                    action_code=action_code, # Store the action performed
-                    seed=normalized_result.get("seed"), # Seed from normalized result
-                    original_concept=original_concept_for_naming, # Pass original concept for naming
-                    prefix="" # No prefix needed here
+                    normalized_result.get('prompt'),
+                    expected_filename, # <--- Pass generated filename
+                    normalized_result.get('concept'),
+                    normalized_result.get('variations'),
+                    normalized_result.get('global_styles'),
+                    original_job_id,
+                    action_code,
+                    None, # components
+                    normalized_result.get('seed')
+                    # original_concept (handled by generator)
+                    # prefix (handled by generator)
                 )
                 if download_success:
                     # Metadata is now saved inside download_and_save_image

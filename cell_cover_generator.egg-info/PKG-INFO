@@ -11,3 +11,4 @@ Requires-Dist: pyperclip>=1.8.2
 Requires-Dist: colorlog>=6.9.0
 Requires-Dist: python-dotenv>=1.0.1
 Requires-Dist: numpy>=1.24.4
+Requires-Dist: tqdm>=4.67.1

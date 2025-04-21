@@ -39,10 +39,12 @@ IMAGES_METADATA_FILENAME = os.path.join(META_DIR, "images_metadata.json")
 
 # --- 从 utils 导入函数 ---
 try:
-    from cell_cover.utils.api import fetch_job_list_from_ttapi, poll_for_result, call_action_api, fetch_seed_from_ttapi # Added fetch_seed_from_ttapi
+    from cell_cover.utils.api import fetch_job_list_from_ttapi, poll_for_result, call_action_api, fetch_seed_from_ttapi, normalize_api_response
     from cell_cover.utils.file_handler import restore_metadata_from_job_list, download_and_save_image, find_initial_job_info, ensure_directories, update_job_metadata, upsert_job_metadata, save_image_metadata
-    # Need ensure_directories if we load metadata here, or handle its absence
-    # from cell_cover.utils.file_handler import ensure_directories # Already imported above
+    from cell_cover.utils.image_handler import download_and_save_image
+    from cell_cover.utils.image_metadata import load_all_metadata, _build_metadata_index
+    from cell_cover.utils.filesystem_utils import write_last_job_id, write_last_succeed_job_id
+    from cell_cover.utils.metadata_manager import _generate_expected_filename
 except ImportError as e:
     print(f"错误：无法导入必要的 utils 模块: {e}")
     print("请确保您在项目根目录下运行，并且 cell_cover/utils 路径正确且包含 __init__.py 文件。")
@@ -86,16 +88,18 @@ def get_api_key():
     return api_key
 
 def display_job_details(result_dict):
-    """格式化并显示单个任务详情字典 (带颜色)"""
+    """格式化并显示单个任务详情字典 (无颜色)"""
     if not result_dict or not isinstance(result_dict, dict):
         print("未能获取或解析任务详情。")
         return
 
-    print("\n\033[1m--- 任务详情 ---\033[0m") # Bold header
+    # print("\n\033[1m--- 任务详情 ---\033[0m") # Bold header
+    print("\n--- 任务详情 ---")
     # ANSI color codes: [96m (Cyan), [0m (Reset), [1m (Bold)
     for key, value in result_dict.items():
         # Print key in Cyan, bold
-        print(f"  \033[96m\033[1m{key}:\033[0m", end=" ")
+        # print(f"  \033[96m\033[1m{key}:\033[0m", end=" ")
+        print(f"  {key}:", end=" ") # No color, no bold
 
         # Special handling for list values (like components)
         if isinstance(value, list):
@@ -123,7 +127,8 @@ def display_job_details(result_dict):
             # Print other values normally
             print(f"{value}")
 
-    print("\033[1m----------------\033[0m") # Bold footer
+    # print("\033[1m----------------\033[0m") # Bold footer
+    print("----------------")
 
 # --- 主逻辑 ---
 
@@ -224,9 +229,12 @@ def main(argv=None):
                                         seed = job.get("seed", "N/A") # Use N/A if seed is missing or None
                                         # Print formatted line with colors
                                         # ANSI color codes:  [94m (Blue),  [92m (Green),  [93m (Yellow),  [0m (Reset)
-                                        print(f"  \033[94mJob ID:\033[0m   {job_id:<{max_id_len}}") # Corrected f-string again
-                                        print(f"  \033[92mFilename:\033[0m {filename:<{max_fname_len}}")
-                                        print(f"  \033[93mSeed:\033[0m     {seed}")
+                                        # print(f"  \033[94mJob ID:\033[0m   {job_id:<{max_id_len}}") # Corrected f-string again
+                                        # print(f"  \033[92mFilename:\033[0m {filename:<{max_fname_len}}")
+                                        # print(f"  \033[93mSeed:\033[0m     {seed}")
+                                        print(f"  Job ID:   {job_id:<{max_id_len}}") # No color
+                                        print(f"  Filename: {filename:<{max_fname_len}}") # No color
+                                        print(f"  Seed:     {seed}") # No color
                                         print("  ---") # Add a separator between entries
                                 # pprint(display_list, indent=2) # Removed pprint
                                 # Remove the final separator as we now separate entries
@@ -433,4 +441,55 @@ def fetch_job_status(job_id, api_key):
     if result:
         display_job_details(result)
     else:
-        print("未能获取任务状态或任务失败。") 
+        print("未能获取任务状态或任务失败。")
+
+    # Standardize the result for consistent processing
+    normalized_result = normalize_api_response(logger, result)
+    normalized_result['job_id'] = job_id # Ensure job_id is included
+    
+    # Upsert the latest metadata
+    upsert_job_metadata(logger, job_id, normalized_result)
+    
+    # --- Generate filename --- #               
+    try:
+        all_tasks = load_all_metadata(logger)
+        all_tasks_index = _build_metadata_index(all_tasks)
+        expected_filename = _generate_expected_filename(logger, normalized_result, all_tasks_index)
+    except Exception as e:
+        logger.error(f"为任务 {job_id} 生成期望文件名时出错: {e}，将使用 job_id 作为备用名。")
+        expected_filename = f"{job_id}.png"
+    # ----------------------- #
+
+    image_url = normalized_result.get('url')
+    current_status = normalized_result.get('status')
+
+    # Download image only if completed and URL exists
+    if current_status == 'completed' and image_url:
+        logger.info("下载图像...")
+        # Call download function with expected filename
+        download_success, saved_path, image_seed = download_and_save_image(
+            logger,
+            image_url,
+            job_id,
+            normalized_result.get('prompt'),
+            expected_filename, # <--- Pass generated filename
+            normalized_result.get('concept'),
+            normalized_result.get('variations'),
+            normalized_result.get('global_styles'),
+            normalized_result.get('original_job_id'),
+            normalized_result.get('action_code'),
+            None, # components
+            normalized_result.get('seed')
+        )
+
+        if download_success:
+            logger.info(f"Image downloaded and saved to {saved_path}")
+            return 0
+        else:
+            logger.error("下载图像失败。")
+            print("错误：下载图像失败。")
+            return 1
+    else:
+        logger.error("任务未完成或图像 URL 不存在。")
+        print("错误：任务未完成或图像 URL 不存在。")
+        return 1 

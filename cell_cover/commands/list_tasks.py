@@ -7,48 +7,30 @@ import requests
 
 # 从 utils 导入必要的函数 - 使用统一的元数据管理模块
 from ..utils.metadata_manager import (
-    load_all_metadata, 
-    update_job_metadata, 
-    find_initial_job_info, 
+    load_all_metadata,
+    update_job_metadata,
+    find_initial_job_info,
     trace_job_history,
     sync_tasks,
     normalize_all_metadata_records # 导入规范化函数
 )
+# 不再需要导入normalize_task_metadata，因为元数据已经包含type和concept字段
+# from ..utils.normalize_metadata import normalize_task_metadata
 # 需要导入底层的保存函数
-from ..utils.image_metadata import _save_metadata_file 
-from ..utils.api import poll_for_result, normalize_api_response
+from ..utils.image_metadata import _save_metadata_file
+from ..utils.api import poll_for_result, normalize_api_response, fetch_job_list_from_ttapi
 from ..utils.filesystem_utils import write_last_succeed_job_id, METADATA_FILENAME
 from ..utils.image_handler import download_and_save_image
 
 logger = logging.getLogger(__name__)
 
-# --- ANSI Color Codes ---
-C_RESET = "\033[0m"
-C_BOLD = "\033[1m"
-C_DIM = "\033[2m"
-C_GREEN = "\033[92m"
-C_RED = "\033[91m"
-C_YELLOW = "\033[93m"
-C_BLUE = "\033[94m"
-C_CYAN = "\033[96m"
-C_MAGENTA = "\033[95m"
-C_GRAY = "\033[90m"
-
-def _colorize_status(status):
-    # 确保 status 是字符串
-    status_str = str(status)
-    status_lower = status_str.lower()
-
-    if status_lower in ['success', 'completed', 'true']:
-        return f"{C_GREEN}{status_str}{C_RESET}"
-    elif status_lower in ['failed', 'error', 'false']:
-        return f"{C_RED}{status_str}{C_RESET}"
-    elif status_lower in ['pending_queue', 'on_queue', 'submitted', 'submitted_webhook', 'submitted_no_wait', 'polling_failed']:
-        return f"{C_YELLOW}{status_str}{C_RESET}"
-    elif status:
-        return f"{C_GRAY}{status_str}{C_RESET}"
-    else:
-        return f"{C_GRAY}N/A{C_RESET}"
+# # 颜色常量 (REMOVED)
+# C_GREEN = "\033[92m"
+# C_RED = "\033[91m"
+# C_YELLOW = "\033[93m"
+# C_BLUE = "\033[94m"
+# C_CYAN = "\033[96m"
+# C_RESET = "\033[0m"
 
 def handle_list_tasks(args, logger):
     """处理 'list' 命令，加载、过滤、排序、同步、规范化并打印任务列表。"""
@@ -64,7 +46,7 @@ def handle_list_tasks(args, logger):
         print("未找到任何任务元数据。")
         # 如果是 sync 或 normalize 操作，即使为空也继续，因为 sync 可能找回任务
         if not getattr(args, 'sync', False) and not getattr(args, 'normalize', False):
-             return 0 
+             return 0
         else:
              all_tasks = [] #确保 all_tasks 是列表
 
@@ -76,12 +58,12 @@ def handle_list_tasks(args, logger):
         if not api_key:
             print("错误：--sync 选项需要设置 TTAPI_API_KEY 环境变量")
             return 1
-        
+
         # 调用同步函数 (来自 metadata_manager, 其内部已包含标准化处理)
         # sync_tasks 返回 (sync_count, skipped_count, failed_count)
         sync_result = sync_tasks(logger, api_key, all_tasks)
         sync_count = sync_result[0]
-        
+
         if sync_count > 0:
             # 同步后重新加载，因为 sync_tasks 会修改文件
             print(f"\n同步完成 {sync_count} 个任务，重新加载元数据...")
@@ -90,7 +72,7 @@ def handle_list_tasks(args, logger):
                 logger.critical("同步后重新加载元数据失败！")
                 print("错误：同步后重新加载元数据失败。")
                 return 1
-            
+
             # --- 在 sync 后自动进行规范化 --- #
             logger.info("同步完成后，开始自动规范化元数据...")
             normalized_tasks = normalize_all_metadata_records(logger, all_tasks)
@@ -113,6 +95,12 @@ def handle_list_tasks(args, logger):
     # --- 处理 --normalize --- #
     if getattr(args, 'normalize', False):
         print("开始规范化元数据...")
+
+        # 添加日志以清晰说明规范化逻辑
+        logger.info("注意：规范化只对状态为 'completed' 的任务进行文件存在性检查")
+        logger.info("      只有已完成但文件丢失的任务才会被标记为 'file_missing'")
+        logger.info("      其他状态的任务将保持原状态")
+
         normalized_tasks = normalize_all_metadata_records(logger, all_tasks)
         if normalized_tasks is not None:
             processed_count = len(normalized_tasks)
@@ -128,7 +116,7 @@ def handle_list_tasks(args, logger):
                 # 如果只执行 normalize，则在这里退出
                 # 如果用户同时指定了其他列表参数，需要决定是否继续显示列表
                 # 当前设计：--normalize 是独立操作，完成后退出
-                return 0 
+                return 0
             else:
                 print("错误：写入规范化后的元数据失败！")
                 return 1
@@ -138,7 +126,7 @@ def handle_list_tasks(args, logger):
 
     # --- 如果执行到这里，说明没有执行 --normalize 或 normalize 失败后需要继续 --- #
     # --- 或者执行了 --sync (无论是否成功或规范化) 后需要继续显示列表 --- #
-    
+
     # 检查是否还有任务数据（可能 sync 后为空）
     if not all_tasks:
          print("没有可显示的任务元数据。")
@@ -229,9 +217,16 @@ def handle_list_tasks(args, logger):
         print("未找到要显示的任务记录。")
         return 0
 
-    print(f"\n{C_BOLD}--- 任务列表 ---{C_RESET}")
+    print("\n--- 任务列表 ---")
     if verbose_mode:
         print(f"DEBUG: 找到 {len(limited_tasks)} 条任务记录")
+
+    # 创建任务索引供trace_job_history使用
+    all_tasks_index = {}
+    for t in all_tasks:
+        job_id = t.get('job_id')
+        if job_id:
+            all_tasks_index[job_id] = t
 
     # Define columns and flexible widths - 简化显示，移除Filename列
     cols = ["时间", "ID", "状态", "命令", "概念"]
@@ -246,10 +241,12 @@ def handle_list_tasks(args, logger):
     # Print header with color
     header_parts = []
     for col in cols:
-        header_parts.append(f"{C_CYAN}{col:<{col_widths[col]}}{C_RESET}")
+        # header_parts.append(f"{C_CYAN}{col:<{col_widths[col]}}{C_RESET}")
+        header_parts.append(f"{col:<{col_widths[col]}}") # No color
     header = " | ".join(header_parts)
     print(header)
-    print(f"{C_GRAY}{'-' * len(header)}{C_RESET}") # Use gray for separator
+    # print(f"{C_GRAY}{'-' * len(header)}{C_RESET}") # Use gray for separator
+    print(f"{'*' * len(header)}") # No color
 
     # Print rows
     for task in limited_tasks:
@@ -263,67 +260,23 @@ def handle_list_tasks(args, logger):
             ts_formatted = dt_obj.strftime("%m/%d %H:%M") if dt_obj else 'N/A'
         except ValueError:
              ts_formatted = 'Invalid Date'
-        row_parts.append(f"{C_BLUE}{ts_formatted:<{col_widths['时间']}}{C_RESET}")
+        # row_parts.append(f"{C_BLUE}{ts_formatted:<{col_widths['时间']}}{C_RESET}")
+        row_parts.append(f"{ts_formatted:<{col_widths['时间']}}") # No color
 
         # Job ID (只显示前6位)
         job_id_str = (task.get('job_id') or 'N/A')[:6]
-        row_parts.append(f"{C_MAGENTA}{job_id_str:<{col_widths['ID']}}{C_RESET}")
+        # row_parts.append(f"{C_MAGENTA}{job_id_str:<{col_widths['ID']}}{C_RESET}")
+        row_parts.append(f"{job_id_str:<{col_widths['ID']}}") # No color
 
         # Status (Colored)
         status_str = (task.get('status') or 'N/A')[:col_widths["状态"]]
-        colored_status = _colorize_status(status_str)
-        # Correct padding calculation for colored strings
-        padding_needed = col_widths["状态"] - (len(status_str) if status_str != 'N/A' else 3) 
-        row_parts.append(f"{colored_status}{' ' * max(0, padding_needed)}")
+        row_parts.append(f"{status_str:<{col_widths['状态']}}")
 
-        # 按照新规范显示类型和概念
-        action_code = task.get('action_code')
-        original_job_id = task.get('original_job_id')
+        # 使用规范化后的数据
+        type_str = task.get('action', 'unknown')
         concept = task.get('concept')
         variations = task.get('variations', '')
         global_styles = task.get('global_styles', '')
-
-        # 判断是原创任务还是action任务
-        is_action = bool(action_code)
-        is_original = not original_job_id
-
-        # 如果是action任务，显示 action_code
-        if is_action:
-            type_str = action_code
-        else:
-            # 原创任务显示 create 或 recreate
-            # 检查是否有标记表明这是一个 recreate 任务
-            is_recreate = task.get('is_recreate', False) or task.get('recreate', False)
-            type_str = "recreate" if is_recreate else "create"
-
-        # 构建概念-变体-风格的格式
-        # 对于所有任务，先检查是否有原始任务ID或概念是否为 action/unknown/restored
-        logger.debug(f"Task {task.get('job_id')}: concept={concept}, original_job_id={original_job_id}")
-
-        # 如果有原始任务ID或概念是 action/unknown/restored，尝试使用 trace_job_history 查找根任务
-        if original_job_id or concept in ["action", "unknown", "restored"]:
-            # 确定要追溯的任务ID
-            trace_id = original_job_id if original_job_id else task.get('job_id')
-            logger.debug(f"Task {task.get('job_id')}: 尝试使用 trace_job_history 查找根任务，追溯 ID: {trace_id}")
-
-            # 追溯任务链条
-            history_chain = trace_job_history(logger, trace_id, all_tasks)
-
-            if history_chain and len(history_chain) > 0:
-                # 从链条中找到根任务（第一个任务）
-                root_task = history_chain[0]
-                old_concept = concept
-
-                # 只有当根任务的概念不是 action/unknown/restored 时才替换
-                if root_task.get('concept') and root_task.get('concept') not in ["action", "unknown", "restored"]:
-                    concept = root_task.get('concept')
-                    variations = root_task.get('variations', '')
-                    global_styles = root_task.get('global_styles', '')
-                    logger.debug(f"Task {task.get('job_id')}: 从根任务 {root_task.get('job_id')} 继承概念信息: {old_concept} -> {concept}")
-                else:
-                    logger.info(f"Task {task.get('job_id')}: 根任务 {root_task.get('job_id')} 的概念也是 {root_task.get('concept')}，不替换")
-            else:
-                logger.info(f"Task {task.get('job_id')}: 无法找到根任务，保持原概念: {concept}")
 
         # 构建概念字符串
         concept_parts = []
@@ -334,13 +287,14 @@ def handle_list_tasks(args, logger):
         if global_styles and global_styles != "":
             concept_parts.append(global_styles)
 
-        # 如果概念列表为空但是action任务，显示原始任务ID
-        if not concept_parts and is_action and original_job_id:
+        # 如果概念列表为空但是有原始任务ID，显示原始任务ID
+        original_job_id = task.get('original_job_id')
+        if not concept_parts and original_job_id:
             concept_str = f"from:{original_job_id[:6]}"
         else:
             concept_str = "-".join(concept_parts) if concept_parts else "N/A"
 
-        # 命令列显示 action_code 或 create/recreate
+        # 命令列显示类型
         command_str = type_str
         # 截断过长的命令字符串
         max_command_len = col_widths['命令']
@@ -362,7 +316,8 @@ def handle_list_tasks(args, logger):
         if args.verbose:
             # Seed (Gray)
             seed_str = str(task.get('seed') or 'N/A')[:col_widths["Seed"]]
-            row_parts.append(f"{C_GRAY}{seed_str:<{col_widths['Seed']}}{C_RESET}")
+            # row_parts.append(f"{C_GRAY}{seed_str:<{col_widths['Seed']}}{C_RESET}")
+            row_parts.append(f"{seed_str:<{col_widths['Seed']}}") # No color
 
             # URL (Gray, Truncated)
             url_str = (task.get('url') or 'N/A') # Already normalized
@@ -371,12 +326,15 @@ def handle_list_tasks(args, logger):
                  url_display = url_str[:max_url_len-3] + "..."
             else:
                  url_display = url_str
-            row_parts.append(f"{C_GRAY}{url_display:<{col_widths['URL']}}{C_RESET}")
+            # row_parts.append(f"{C_GRAY}{url_display:<{col_widths['URL']}}{C_RESET}")
+            row_parts.append(f"{url_display:<{col_widths['URL']}}") # No color
 
         print(" | ".join(row_parts))
 
-    print(f"{C_GRAY}{'-' * len(header)}{C_RESET}")
-    print(f"显示 {C_BOLD}{len(limited_tasks)}{C_RESET} 条记录 (总匹配: {len(filtered_tasks)}, 总记录: {len(all_tasks)})")
+    # print(f"{C_GRAY}{'-' * len(header)}{C_RESET}")
+    print(f"{'*' * len(header)}") # No color
+    # print(f"显示 {C_BOLD}{len(limited_tasks)}{C_RESET} 条记录 (总匹配: {len(filtered_tasks)}, 总记录: {len(all_tasks)})") # No bold
+    print(f"显示 {len(limited_tasks)} 条记录 (总匹配: {len(filtered_tasks)}, 总记录: {len(all_tasks)})")
     print()
 
     return 0
@@ -403,6 +361,9 @@ def add_subparser(subparsers):
     )
     parser.add_argument(
         '--normalize', action='store_true', help='规范化元数据文件，移除冗余字段并统一格式'
+    )
+    parser.add_argument(
+        '-v', '--verbose', action='store_true', help='显示详细的调试日志'
     )
     parser.set_defaults(handle=handle_list_tasks)
     return parser

@@ -61,7 +61,7 @@ def call_imagine_api(
         "TT-API-KEY": api_key,
         "Content-Type": "application/json"
     }
-    
+
     # Base payload from prompt_data
     payload = prompt_data.copy()
 
@@ -154,7 +154,7 @@ def poll_for_result(
 
         current_result = None
         poll_successful = False
-        
+
         for attempt in range(max_retries_per_poll + 1):
             try:
                 if attempt > 0:
@@ -212,10 +212,16 @@ def poll_for_result(
                     return None
             elif status == "FAILED":
                 error_message = current_result.get("message", "未知错误")
-                logger.error(f"任务失败: {error_message}")
-                print(f"错误：任务失败 - {error_message}")
-                logger.debug(f"  poll_for_result 准备返回 None (FAILED)")
-                return None
+                logger.warning(f"任务失败: {error_message}")
+                print(f"  任务状态: 失败 - {error_message}")
+                logger.debug(f"  poll_for_result 准备返回失败数据 (FAILED)")
+                # 返回失败数据，而不是 None，这样调用者可以处理失败状态
+                # 确保数据中包含 status 字段
+                if isinstance(data, dict):
+                    data['status'] = "FAILED"
+                else:
+                    data = {"status": "FAILED", "message": error_message}
+                return data
 
         elif not poll_successful:
              logger.error(f"在第 {poll_count} 次轮询中，所有重试均失败。")
@@ -309,7 +315,7 @@ def call_action_api(
 
     # Log the final payload before sending
     logger.debug(f"发送到 /action 的 Payload: {json.dumps(payload)}")
-    
+
     try:
         response = requests.post(endpoint, headers=headers, json=payload, timeout=30)
         # Check for HTTP errors
@@ -496,11 +502,11 @@ def call_blend_api(
 
     logger.info(f"向 {endpoint} 发送 Blend 请求 ({len(img_base64_array)} 张图片)")
     # Avoid logging the full base64 array for brevity and security
-    logger.debug(f"Blend Payload (excluding base64): {{dimensions: {dimensions}, mode: {mode}, hookUrl: {hook_url}, getUImages: {get_u_images}}}") 
+    logger.debug(f"Blend Payload (excluding base64): {{dimensions: {dimensions}, mode: {mode}, hookUrl: {hook_url}, getUImages: {get_u_images}}}")
 
     try:
         # Increase timeout slightly for potential larger uploads
-        response = requests.post(endpoint, headers=headers, json=payload, timeout=60) 
+        response = requests.post(endpoint, headers=headers, json=payload, timeout=60)
         response.raise_for_status()
         result = response.json()
 
@@ -634,4 +640,4 @@ def call_describe_api(
     except Exception as e:
         logger.error(f"处理 /describe 响应时发生意外错误: {e}", exc_info=True)
         print(f"错误：处理 Describe 请求时发生意外错误。")
-        return None 
+        return None

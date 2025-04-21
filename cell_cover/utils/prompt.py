@@ -187,9 +187,9 @@ def generate_prompt_text(logger, config, concept_key, variation_keys=None, globa
     # If cref_url is provided and version is v6 or v7, add it to the prompt
     if cref_url:
         if version in ["v6", "v7"]:
-            # 将 cref_url 添加为技术参数
-            final_technical_params.append(f"--cref {cref_url}")
-            logger.debug(f"添加图像参考 URL: {cref_url}")
+            # 将 cref_url 添加到提示词的开头
+            full_description = f"{cref_url} {full_description}"
+            logger.debug(f"添加图像参考 URL 到提示词开头: {cref_url}")
         else:
             logger.warning("图像参考 URL (--cref) 仅在 v6 或 v7 版本中支持，将被忽略。")
 

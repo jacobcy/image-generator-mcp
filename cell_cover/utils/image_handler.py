@@ -146,82 +146,93 @@ def download_and_save_image(
     image_url: str,
     job_id: str, # 当前任务的Job ID (可能是原始的，也可能是Action的)
     prompt: str,
+    expected_filename: str, # <--- 移到这里：由调用者传入的期望文件名
     concept: Optional[str] = None, # 当前任务的Concept
     variations: Optional[list] = None, # 当前任务的Variations
     styles: Optional[list] = None, # 当前任务的Styles
     original_job_id: Optional[str] = None, # 如果是Action，这是原始任务ID
     action_code: Optional[str] = None, # 如果是Action，这是执行的动作
     components: Optional[list] = None, # API 返回的 components (已弃用)
-    seed: Optional[str] = None,
-    # 新增参数以支持Action命名
-    original_concept: Optional[str] = None, # 如果是Action，这是原始任务的Concept
-    prefix: str = "" # 用于 recreate 等特殊情况
+    seed: Optional[str] = None
+    # 新增参数以支持Action命名 (现在由调用者处理)
+    # original_concept: Optional[str] = None, # 如果是Action，这是原始任务的Concept
+    # prefix: str = "" # 用于 recreate 等特殊情况
 ) -> tuple[bool, Optional[str], Optional[str]]:
-    """Downloads an image, saves it using the standard naming convention, and saves metadata.
+    """Downloads an image, saves it using the provided filename, and saves metadata.
+    Now returns more specific error info on failure.
 
     Args:
         logger: Logger instance.
         image_url: URL of the image to download.
         job_id: The Job ID associated with this image.
         prompt: The prompt used.
-        concept: The concept key (optional). **For actions, this should be inherited from original task.**
+        concept: The concept key (optional).
         variations: Variation keys used (optional).
         styles: Style keys used (optional).
-        original_job_id: Original Job ID if this is a derived image (optional). **Critical for tracing action chains.**
-        action_code: Action code if this resulted from an action (optional). **Identifies what action created this result.**
+        original_job_id: Original Job ID if this is a derived image (optional).
+        action_code: Action code if this resulted from an action (optional).
         components: Components list from API result (optional).
         seed: Seed value from API result (optional).
-        original_concept: Original concept key if this is derived from an action.
-        prefix: Prefix to add to the filename (e.g., 'recreate_').
+        expected_filename: The exact filename (including extension) to save the image as.
 
     Returns:
-        tuple[bool, Optional[str], Optional[str]]: (success status, saved filepath, seed used)
+        tuple[bool, Optional[str], Optional[str]]: 
+          (success status, filepath_or_error_info, seed_used)
+          On failure, filepath_or_error_info contains a string like '404_error',
+          'request_error', 'io_error', 'unknown_error'.
     """
     # Log entry point with improved logging for action chain info
-    logger.debug(f"进入 download_and_save_image, job_id={job_id}, url='{image_url[:50]}...'")
-    if action_code and original_job_id:
-        logger.debug(f"这是一个 Action 结果: action_code={action_code}, original_job_id={original_job_id}, original_concept={original_concept}")
-    if prefix:
-        logger.debug(f"使用文件名前缀: {prefix}")
+    logger.debug(f"进入 download_and_save_image, job_id={job_id}, url='{image_url[:50]}...', expected_filename={expected_filename}")
+    # if action_code and original_job_id:
+    #     logger.debug(f"这是一个 Action 结果: action_code={action_code}, original_job_id={original_job_id}, original_concept={original_concept}")
+    # if prefix:
+    #     logger.debug(f"使用文件名前缀: {prefix}")
 
     if not image_url:
         logger.error("Image URL is empty, cannot download.")
         return False, None, None
+        
+    if not expected_filename:
+        logger.error("Expected filename is empty, cannot save.")
+        return False, None, None
 
-    # 1. Generate filename
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    job_id_part = job_id[:6] if job_id else "nojobid"
-    filename = ""
+    # 1. 使用传入的文件名确定路径
+    # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # job_id_part = job_id[:6] if job_id else "nojobid"
+    # filename = ""
 
-    # 清理变体和风格列表 (移除空字符串等)
-    clean_variations = [v for v in variations if v] if variations else []
-    clean_styles = [s for s in styles if s] if styles else []
+    # # 清理变体和风格列表 (移除空字符串等)
+    # clean_variations = [v for v in variations if v] if variations else []
+    # clean_styles = [s for s in styles if s] if styles else []
 
-    if action_code and original_job_id:
-        # --- Action 任务命名 --- #
-        # 使用传入的 original_concept，如果为空则尝试使用当前 concept 或 'unknown'
-        base_concept = sanitize_filename(original_concept or concept or "unknown")
-        orig_job_id_part = original_job_id[:6] if original_job_id else "noorigid"
-        safe_action_code = sanitize_filename(action_code)
-        filename = f"{prefix}{base_concept}-{orig_job_id_part}-{safe_action_code}-{timestamp}.png"
-        logger.debug(f"生成 Action 文件名: {filename}")
-    else:
-        # --- 原始任务命名 --- #
-        base_concept = sanitize_filename(concept or "direct")
-        parts = [prefix + base_concept, job_id_part]
-        if clean_variations:
-            parts.append("-".join(map(sanitize_filename, clean_variations)))
-        if clean_styles:
-            parts.append("-".join(map(sanitize_filename, clean_styles)))
-        parts.append(timestamp)
-        filename = "-".join(parts) + ".png"
-        logger.debug(f"生成原始任务文件名: {filename}")
+    # if action_code and original_job_id:
+    #     # --- Action 任务命名 --- #
+    #     # 使用传入的 original_concept，如果为空则尝试使用当前 concept 或 'unknown'
+    #     base_concept = sanitize_filename(original_concept or concept or "unknown")
+    #     orig_job_id_part = original_job_id[:6] if original_job_id else "noorigid"
+    #     safe_action_code = sanitize_filename(action_code)
+    #     filename = f"{prefix}{base_concept}-{orig_job_id_part}-{safe_action_code}-{timestamp}.png"
+    #     logger.debug(f"生成 Action 文件名: {filename}")
+    # else:
+    #     # --- 原始任务命名 --- #
+    #     base_concept = sanitize_filename(concept or "direct")
+    #     parts = [prefix + base_concept, job_id_part]
+    #     if clean_variations:
+    #         parts.append("-".join(map(sanitize_filename, clean_variations)))
+    #     if clean_styles:
+    #         parts.append("-".join(map(sanitize_filename, clean_styles)))
+    #     parts.append(timestamp)
+    #     filename = "-".join(parts) + ".png"
+    #     logger.debug(f"生成原始任务文件名: {filename}")
 
-    # Limit overall filename length (redundant if sanitize_filename works, but safe)
-    filename = filename[:MAX_FILENAME_LENGTH] 
-    if not filename.lower().endswith('.png'): # Ensure extension after potential truncation
-         filename = filename[:MAX_FILENAME_LENGTH - 4] + ".png" 
+    # # Limit overall filename length (redundant if sanitize_filename works, but safe)
+    # filename = filename[:MAX_FILENAME_LENGTH] 
+    # if not filename.lower().endswith('.png'): # Ensure extension after potential truncation
+    #      filename = filename[:MAX_FILENAME_LENGTH - 4] + ".png" 
 
+    # 使用传入的文件名
+    filename = expected_filename
+    
     # Use IMAGE_DIR constant for the save directory
     save_dir = IMAGE_DIR
     filepath = os.path.join(save_dir, filename)
@@ -254,7 +265,7 @@ def download_and_save_image(
 
         # Log metadata saving with chain information if applicable
         if action_code and original_job_id:
-            logger.info(f"保存 Action 结果元数据: action_code={action_code}, original_job_id={original_job_id}, original_concept={original_concept}")
+            logger.info(f"保存 Action 结果元数据: action_code={action_code}, original_job_id={original_job_id}")
             
         # Call the metadata saving function from image_metadata module
         # 确保传递所有关键参数，尤其是链条追踪需要的参数
@@ -283,11 +294,19 @@ def download_and_save_image(
         return True, filepath, final_seed
 
     except requests.exceptions.RequestException as e:
-        logger.error(f"Error downloading image from {image_url}: {e}")
-        return False, None, None
+        status_code_info = "request_error" # Default error type
+        if e.response is not None:
+            if e.response.status_code == 404:
+                status_code_info = "404_error"
+            elif e.response.status_code == 403:
+                 status_code_info = "403_error"
+            else:
+                status_code_info = f"{e.response.status_code}_error"
+        logger.error(f"Error downloading image from {image_url} ({status_code_info}): {e}")
+        return False, status_code_info, None # Return specific error info
     except IOError as e:
         logger.error(f"Error saving image to {filepath}: {e}")
-        return False, None, None
+        return False, "io_error", None # Return specific error info
     except Exception as e:
         logger.error(f"An unexpected error occurred during image download/save: {e}", exc_info=True)
-        return False, None, None
+        return False, "unknown_error", None # Return specific error info

@@ -14,13 +14,16 @@ import uuid
 import logging
 import shutil
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
 
 # 从 filesystem_utils 导入常量和函数
 from .filesystem_utils import (
     META_DIR, METADATA_FILENAME, IMAGE_DIR, # IMAGE_DIR needed for restore filepath default
     ensure_directories, sanitize_filename
 )
+
+# 导入 API 响应标准化函数
+from .api import normalize_api_response
 
 # 注意：原本 save_image_metadata/update_job_metadata/upsert_job_metadata 中包含 print 语句
 # 为了让模块更纯粹，这些 print 语句可以移除，仅保留 logger 输出。
@@ -111,7 +114,7 @@ def save_image_metadata(logger, image_id, job_id, filename, filepath, url, promp
                        action_code: Optional[str] = None,
                        status: Optional[str] = None):
     """保存初始图像元数据到 images_metadata.json 文件 (安全模式)。
-    
+
     Args:
         logger: The logging object.
         image_id: The ID of the image.
@@ -147,6 +150,7 @@ def save_image_metadata(logger, image_id, job_id, filename, filepath, url, promp
                 logger.info(f"找到 Job ID {job_id} 的现有记录，将执行更新。")
                 break
 
+    # 构建初始元数据字典
     image_metadata = {
         "id": image_id or str(uuid.uuid4()), # Ensure local ID exists
         "job_id": job_id,
@@ -163,25 +167,32 @@ def save_image_metadata(logger, image_id, job_id, filename, filepath, url, promp
         "status": status or (existing_index != -1 and metadata_data["images"][existing_index].get("status")) # Preserve existing status unless new one provided
     }
 
-    # Remove None values more carefully
-    image_metadata_cleaned = {k: v for k, v in image_metadata.items() if v is not None}
+    # 使用 normalize_api_response 标准化元数据
+    # 注意：normalize_api_response 会移除 None 值和不必要的字段
+    normalized_metadata = normalize_api_response(logger, image_metadata)
+
+    # 确保关键字段存在
+    if "job_id" not in normalized_metadata:
+        normalized_metadata["job_id"] = job_id
+    if "id" not in normalized_metadata:
+        normalized_metadata["id"] = image_id or str(uuid.uuid4())
 
     if existing_index != -1:
         # Update existing record
         logger.debug("更新现有元数据条目")
-        metadata_data["images"][existing_index].update(image_metadata_cleaned)
+        metadata_data["images"][existing_index].update(normalized_metadata)
         # Update timestamp
         metadata_data["images"][existing_index]["metadata_updated_at"] = datetime.now().isoformat()
     else:
         # Append new record
         logger.debug("追加新的初始元数据条目")
         # Add created_at timestamp for new records
-        image_metadata_cleaned["created_at"] = datetime.now().isoformat()
+        normalized_metadata["created_at"] = datetime.now().isoformat()
         # Ensure 'images' list exists
         if "images" not in metadata_data:
             metadata_data["images"] = []
-        metadata_data["images"].append(image_metadata_cleaned)
-    
+        metadata_data["images"].append(normalized_metadata)
+
     logger.debug(f"准备写入 {len(metadata_data['images'])} 条记录")
 
     if _save_metadata_file(logger, target_filename, metadata_data):
@@ -292,6 +303,13 @@ def upsert_job_metadata(logger, job_id_to_upsert, new_data):
          return False
     # If there was a non-critical load error but we initialized a fresh structure, proceed.
 
+    # 使用 normalize_api_response 标准化输入数据
+    normalized_data = normalize_api_response(logger, new_data)
+
+    # 确保 job_id 存在且正确
+    if "job_id" not in normalized_data or normalized_data["job_id"] != job_id_to_upsert:
+        normalized_data["job_id"] = job_id_to_upsert
+
     job_found = False
     # Ensure 'images' list exists even if we loaded a fresh structure
     if "images" not in metadata_data or not isinstance(metadata_data["images"], list):
@@ -301,7 +319,7 @@ def upsert_job_metadata(logger, job_id_to_upsert, new_data):
     for i, job in enumerate(metadata_data["images"]):
         if job.get("job_id") == job_id_to_upsert:
             logger.info(f"找到现有 Job ID {job_id_to_upsert}，执行更新...")
-            update_payload = new_data.copy()
+            update_payload = normalized_data.copy()
             update_payload["metadata_updated_at"] = datetime.now().isoformat()
             if 'id' not in update_payload and 'id' in job:
                 update_payload['id'] = job['id']
@@ -311,7 +329,7 @@ def upsert_job_metadata(logger, job_id_to_upsert, new_data):
 
     if not job_found:
         logger.info(f"未找到现有 Job ID {job_id_to_upsert}，执行追加...")
-        upsert_payload = new_data.copy() # Use copy to avoid modifying original
+        upsert_payload = normalized_data.copy() # Use copy to avoid modifying original
         if "job_id" not in upsert_payload or upsert_payload["job_id"] != job_id_to_upsert:
             upsert_payload["job_id"] = job_id_to_upsert
         if "id" not in upsert_payload:
@@ -345,85 +363,141 @@ def load_all_metadata(logger):
 def _build_metadata_index(metadata_list):
     """
     构建元数据索引，创建 job_id 到任务元数据的映射。
-    
+
     Args:
         metadata_list: 元数据列表
-        
+
     Returns:
         dict: 以 job_id 为键、对应元数据字典为值的索引
     """
     index = {}
     if not metadata_list:
         return index
-        
+
     for task in metadata_list:
         job_id = task.get("job_id")
         if job_id:
             index[job_id] = task
-    
+
     return index
 
 def trace_job_history(logger, target_job_id, all_metadata=None):
     """
     追溯给定任务 ID 的完整历史链条。
-    
+
     Args:
         logger: 日志记录器
         target_job_id: 目标任务 ID
         all_metadata: (可选) 预加载的所有元数据。如果未提供，函数会从 METADATA_FILENAME 加载。
-        
+
     Returns:
         list: 任务链条元数据列表，从根任务（没有original_job_id的任务）到目标任务
     """
     logger.info(f"追溯任务 {target_job_id} 的历史链条...")
-    
-    # 加载元数据或使用传入的元数据
-    if all_metadata is None:
-        all_metadata, load_error, _ = _load_metadata_file(logger, METADATA_FILENAME)
-        if load_error or not all_metadata or "images" not in all_metadata:
+
+    # 加载元数据或使用传入的元数据/索引
+    metadata_index = None
+    if isinstance(all_metadata, dict) and not "images" in all_metadata:
+        # 假设如果传入的是字典且没有 'images' 键，则它是预构建的索引
+        logger.debug("使用预构建的元数据索引进行追溯。")
+        metadata_index = all_metadata
+    elif all_metadata is None:
+        # 如果未提供，则加载
+        logger.debug("未提供元数据，正在从文件加载...")
+        loaded_data, load_error, _ = _load_metadata_file(logger, METADATA_FILENAME)
+        if load_error or not loaded_data or "images" not in loaded_data:
             logger.error("无法加载元数据，无法追溯任务历史。")
             return []
-        all_metadata = all_metadata.get("images", [])
+        metadata_index = _build_metadata_index(loaded_data.get("images", []))
     elif isinstance(all_metadata, dict) and "images" in all_metadata:
-        all_metadata = all_metadata.get("images", [])
-    
-    # 构建索引以提高查找效率
-    metadata_index = _build_metadata_index(all_metadata)
-    
-    if target_job_id not in metadata_index:
-        logger.warning(f"目标任务 ID {target_job_id} 不存在于元数据中。")
+        # 如果传入的是包含 'images' 的字典
+        logger.debug("从传入的元数据字典构建索引...")
+        metadata_index = _build_metadata_index(all_metadata.get("images", []))
+    elif isinstance(all_metadata, list):
+         # 如果传入的是列表
+        logger.debug("从传入的元数据列表构建索引...")
+        metadata_index = _build_metadata_index(all_metadata)
+    else:
+        logger.error("传入的 all_metadata 参数类型无效，无法追溯任务历史。")
         return []
-    
+
+    # 构建索引以提高查找效率 (现在在上面处理了)
+    # metadata_index = _build_metadata_index(all_metadata)
+
+    if target_job_id not in metadata_index:
+        logger.warning(f"目标任务 ID {target_job_id} 不存在于元数据索引中。")
+        return []
+
     # 开始回溯链条
     history_chain = []
     visited_job_ids = set()  # 用于循环检测
     current_job_id = target_job_id
-    
-    while current_job_id and current_job_id not in visited_job_ids:
-        visited_job_ids.add(current_job_id)
-        
-        current_task = metadata_index.get(current_job_id)
-        if not current_task:
-            logger.warning(f"链条中的任务 ID {current_job_id} 不存在于元数据中，链条中断。")
-            break
-            
-        # 将当前任务添加到历史的开头（这样链条顺序是从根到目标）
-        history_chain.insert(0, current_task)
-        
-        # 获取前一个任务 ID
-        current_job_id = current_task.get("original_job_id")
-        
-        # 检测潜在的循环
-        if current_job_id in visited_job_ids:
-            logger.error(f"在任务历史链条中检测到循环！当前任务 {current_job_id} 已在访问集合中。")
-            # 返回到循环检测前的链条
-            break
-    
-    if len(history_chain) > 1:
-        logger.info(f"成功追溯到 {len(history_chain)} 个任务的链条。")
-    elif len(history_chain) == 1:
-        logger.info(f"目标任务 {target_job_id} 是一个独立的原始任务，没有前置任务。")
-    else:
-        logger.warning(f"无法构建任务 {target_job_id} 的历史链条。")
-    
+
+    try:
+        while current_job_id and current_job_id not in visited_job_ids:
+            visited_job_ids.add(current_job_id)
+
+            current_task = metadata_index.get(current_job_id)
+            if not current_task:
+                logger.warning(f"追踪 Job ID {target_job_id} 时未找到 {current_job_id} 的元数据。")
+                break # Stop tracing if a link is missing
+
+            # Safety check: Ensure current_task is a dictionary
+            if not isinstance(current_task, dict):
+                logger.error(f"追踪 Job ID {target_job_id} 时遇到无效的任务数据（非字典） for Job ID: {current_job_id}。数据: {current_task}")
+                break # Stop tracing if data is corrupted
+
+            history_chain.insert(0, current_task)
+
+            # 获取前一个任务 ID
+            current_job_id = current_task.get("original_job_id") # Now safer to call .get()
+    except Exception as e:
+        logger.exception(f"追踪 Job ID {target_job_id} 的历史记录时发生意外错误: {e}") # Use logger.exception for stack trace
+        # Return potentially partial history
     return history_chain
+
+# --- 新增：移除元数据记录 --- #
+
+def remove_job_metadata(logger: logging.Logger, job_id_to_remove: str) -> bool:
+    """从 images_metadata.json 中移除指定 Job ID 的记录。"""
+    target_filename = METADATA_FILENAME
+    logger.info(f"尝试从 {target_filename} 中移除 Job ID {job_id_to_remove} 的记录...")
+
+    metadata_data, load_error, backup_file = _load_metadata_file(logger, target_filename)
+
+    if load_error or metadata_data is None:
+        logger.error(f"无法加载或初始化元数据，无法移除记录。{(' 备份文件: ' + backup_file) if backup_file else ''}")
+        return False
+
+    initial_count = len(metadata_data.get("images", []))
+    job_found = False
+    index_to_remove = -1
+
+    if "images" in metadata_data:
+        for i, job in enumerate(metadata_data["images"]):
+            if job.get("job_id") == job_id_to_remove:
+                index_to_remove = i
+                job_found = True
+                break
+
+    if job_found:
+        try:
+            removed_task = metadata_data["images"].pop(index_to_remove)
+            logger.info(f"成功找到并标记待移除 Job ID {job_id_to_remove} (Index: {index_to_remove})。")
+            # 保存更改
+            if _save_metadata_file(logger, target_filename, metadata_data):
+                logger.info(f"成功从元数据文件中移除 Job ID {job_id_to_remove}。")
+                return True
+            else:
+                logger.error(f"保存移除 Job ID {job_id_to_remove} 后的元数据失败。文件可能未更新。")
+                # 理论上应该尝试恢复？但目前设计是失败就返回False
+                return False
+        except IndexError:
+             logger.error(f"尝试移除 Job ID {job_id_to_remove} 时发生内部错误：索引 {index_to_remove} 无效。")
+             return False
+        except Exception as e:
+             logger.error(f"移除 Job ID {job_id_to_remove} 时发生意外错误: {e}", exc_info=True)
+             return False
+    else:
+        logger.warning(f"在元数据中未找到要移除的 Job ID {job_id_to_remove}。")
+        return False # Return False if not found, although technically not an error

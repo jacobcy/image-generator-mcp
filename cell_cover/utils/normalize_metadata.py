@@ -17,18 +17,23 @@ import uuid # Import uuid
 from datetime import datetime
 from pathlib import Path
 import shutil
+from typing import Dict, Any, List
+from tqdm import tqdm
+import re
 
 # 添加父目录到PATH，以便导入cell_cover模块
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from cell_cover.utils.metadata_manager import (
-    load_all_metadata, 
+    load_all_metadata,
     # update_job_metadata # 不再使用逐条更新
 )
 # 需要导入底层的保存函数
-from cell_cover.utils.image_metadata import _save_metadata_file 
+from cell_cover.utils.image_metadata import _save_metadata_file, _build_metadata_index, trace_job_history
 from cell_cover.utils.api import normalize_api_response
-from cell_cover.utils.filesystem_utils import METADATA_FILENAME, META_DIR
+from cell_cover.utils.filesystem_utils import METADATA_FILENAME, META_DIR, IMAGE_DIR, sanitize_filename
+from cell_cover.utils.file_handler import MAX_FILENAME_LENGTH
+from cell_cover.utils.file_handler import _generate_expected_filename
 
 # 设置日志
 logging.basicConfig(
@@ -37,172 +42,362 @@ logging.basicConfig(
 )
 logger = logging.getLogger('normalize_metadata')
 
+# --- 元数据规范化核心逻辑 --- #
+
+def normalize_all_metadata_records(logger: logging.Logger, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """规范化内存中的任务记录列表（两阶段处理），并尝试重命名关联的文件。"""
+    if not tasks:
+        logger.warning("传入的任务列表为空，无需规范化。")
+        return []
+
+    logger.info(f"开始两阶段规范化内存中的 {len(tasks)} 条任务记录...")
+
+    # --- 阶段一：基础标准化 --- #
+    logger.info("--- 阶段一：基础标准化 --- ")
+    pass1_tasks = []
+    pass1_skipped_count = 0
+    for original_task in tqdm(tasks, desc="阶段一: 基础标准化", unit="任务"):
+        task_id_log = original_task.get('job_id') or original_task.get('id') or '未知ID'
+        job_id = original_task.get('job_id')
+
+        if not job_id:
+            logger.warning(f"跳过缺少job_id的记录: {task_id_log}")
+            pass1_skipped_count += 1
+            continue
+
+        try:
+            normalized = normalize_api_response(logger, original_task)
+            if not normalized:
+                logger.warning(f"基础标准化任务 {job_id} 失败，跳过")
+                pass1_skipped_count += 1
+                continue
+        except Exception as e:
+            logger.error(f"基础标准化任务 {job_id} 时发生错误: {e}，跳过")
+            pass1_skipped_count += 1
+            continue
+
+        # 确保核心字段存在
+        normalized['job_id'] = job_id
+        if 'id' not in normalized or not normalized['id']:
+            normalized['id'] = str(uuid.uuid4())
+        if 'created_at' not in normalized or not normalized['created_at']:
+            creation_time = original_task.get('created_at') or original_task.get('metadata_added_at') or original_task.get('restored_at') or datetime.now().isoformat()
+            normalized['created_at'] = creation_time
+        if 'status' not in normalized or not normalized['status']:
+            # 基础状态推断（后续可能被文件检查覆盖）
+            if normalized.get('url') or original_task.get('filepath'):
+                 normalized['status'] = 'completed' # Tentative
+            else:
+                 normalized['status'] = 'unknown'
+        if 'variations' not in normalized or normalized['variations'] is None:
+            normalized['variations'] = ""
+        if 'global_styles' not in normalized or normalized['global_styles'] is None:
+            normalized['global_styles'] = ""
+        # 保留原始文件信息，阶段二使用
+        normalized['_original_filepath'] = original_task.get('filepath')
+        normalized['_original_filename'] = original_task.get('filename')
+
+        pass1_tasks.append(normalized)
+
+    logger.info(f"阶段一完成。基础标准化: {len(pass1_tasks)} 条，跳过: {pass1_skipped_count} 条。")
+
+    # --- 阶段二：概念继承、文件名生成、文件处理 --- #
+    logger.info("--- 阶段二：概念/文件处理 --- ")
+    if not pass1_tasks:
+        logger.warning("阶段一后没有可处理的任务，规范化结束。")
+        return []
+
+    final_normalized_tasks = []
+    processed_count = 0
+    skipped_count = 0 # 阶段二跳过 (e.g., FAILED status)
+    error_count = 0
+    rename_failure_count = 0
+    file_missing_count = 0
+
+    # 基于阶段一结果构建索引
+    logger.info("构建元数据索引用于概念追溯...")
+    all_tasks_index = _build_metadata_index(pass1_tasks)
+    logger.info("索引构建完成。")
+
+    for task in tqdm(pass1_tasks, desc="阶段二: 概念/文件处理", unit="任务"):
+        job_id = task['job_id'] # 此时 job_id 必然存在
+        current_task = task.copy() # 使用阶段一结果
+
+        # 1. 概念规范化
+        try:
+            normalized_with_concept = normalize_task_metadata(current_task, all_tasks_index, logger)
+            current_task.update(normalized_with_concept) # 更新 current_task
+            logger.debug(f"任务 {job_id[:6]} 概念规范化完成: concept='{current_task.get('concept')}'")
+        except Exception as e:
+            logger.error(f"规范化任务 {job_id[:6]} 的概念时发生错误: {e}")
+            error_count += 1
+            current_task['status'] = 'normalization_error'
+            # 即使概念出错，也尝试继续处理文件
+
+        # 2. 文件名生成
+        expected_filename = None
+        expected_filepath = None
+        try:
+            expected_filename = _generate_expected_filename(logger, current_task, all_tasks_index)
+            expected_filepath = os.path.join(IMAGE_DIR, expected_filename)
+        except Exception as e:
+             logger.error(f"为任务 {job_id[:6]} 生成期望文件名时出错: {e}")
+             error_count += 1
+             current_task['status'] = 'filename_error'
+             # 保留原始或置空
+             current_task['filename'] = current_task.get('_original_filename')
+             current_task['filepath'] = current_task.get('_original_filepath')
+             # 出错也添加到最终列表，但不进行文件检查
+             final_normalized_tasks.append(current_task)
+             continue
+
+        # 3. 文件存在性检查和重命名
+        original_filepath = current_task.pop('_original_filepath', None) # 取出并移除临时字段
+        original_filename = current_task.pop('_original_filename', None)
+        current_status = current_task.get('status') # 获取当前任务状态 (可能来自阶段一)
+
+        file_exists = False
+        actual_filepath = None
+
+        # 检查顺序：1. 原始路径 2. 期望路径
+        if original_filepath and os.path.exists(original_filepath):
+            file_exists = True
+            actual_filepath = original_filepath
+            logger.debug(f"任务 {job_id[:6]} 在原始路径找到文件: {original_filepath}")
+        elif expected_filepath and os.path.exists(expected_filepath):
+             # This case handles if file was somehow already at expected path
+            file_exists = True
+            actual_filepath = expected_filepath
+            logger.debug(f"任务 {job_id[:6]} 在期望路径找到文件: {expected_filepath}")
+
+        # 仅当任务状态最初是 'completed' 或被推断为 'completed' 时，才进行文件相关的状态更新
+        if current_status == 'completed':
+            if file_exists:
+                current_task['filepath'] = actual_filepath # 确认文件路径
+                current_task['filename'] = os.path.basename(actual_filepath)
+                # 文件存在，检查是否需要重命名
+                if actual_filepath != expected_filepath:
+                    try:
+                        os.makedirs(os.path.dirname(expected_filepath), exist_ok=True)
+                        shutil.move(actual_filepath, expected_filepath)
+                        logger.info(f"文件已重命名: '{current_task['filename']}' -> '{expected_filename}'")
+                        current_task['filename'] = expected_filename # 更新为新文件名
+                        current_task['filepath'] = expected_filepath # 更新为新文件路径
+                        current_task['status'] = 'completed' # 保持 completed
+                    except OSError as e:
+                        logger.error(f"重命名文件失败: 从 '{actual_filepath}' 到 '{expected_filepath}' - {e}")
+                        # 保留重命名前的实际路径和文件名
+                        current_task['status'] = 'rename_failed'
+                        rename_failure_count += 1
+                else:
+                    # 文件存在且已在正确位置 (文件名和路径都符合预期)
+                    current_task['filename'] = expected_filename
+                    current_task['filepath'] = expected_filepath
+                    current_task['status'] = 'completed'
+                    logger.debug(f"任务 {job_id[:6]} 文件已在正确位置: {expected_filepath}")
+            else:
+                # 文件丢失
+                logger.warning(f"已完成任务 {job_id[:6]} 的文件丢失。检查路径: {original_filepath} 和 {expected_filepath}")
+                current_task['status'] = 'file_missing'
+                current_task['filename'] = None
+                current_task['filepath'] = None
+                file_missing_count += 1
+        else:
+            # 对于非 'completed' 任务，保留原状态
+            # 只更新记录中的 filename 和 filepath 为期望值，以便后续下载等操作使用
+            current_task['filename'] = expected_filename
+            current_task['filepath'] = expected_filepath
+            logger.debug(f"保留非 completed 任务 {job_id[:6]} 的状态 '{current_status}'，设置期望路径: {expected_filepath}")
+
+        # --- 最终状态检查（例如，跳过 FAILED） ---
+        if current_task.get('status') == 'FAILED':
+            logger.info(f"跳过 FAILED 状态的任务 {job_id[:6]}，不添加到最终列表")
+            skipped_count += 1
+            continue
+
+        final_normalized_tasks.append(current_task)
+        processed_count += 1
+
+    logger.info(f"--- 阶段二完成 --- ")
+    logger.info(f"  最终处理: {processed_count} 条")
+    logger.info(f"  跳过 (FAILED): {skipped_count} 条")
+    logger.info(f"  文件丢失: {file_missing_count} 条")
+    logger.info(f"  重命名失败: {rename_failure_count} 条")
+    logger.info(f"  错误 (概念/文件名): {error_count} 条")
+    logger.info(f"总规范化完成。有效记录: {len(final_normalized_tasks)} 条。")
+
+    return final_normalized_tasks
+
+# --- 旧的 normalize_all_metadata 函数保持不变，用于命令行直接调用 --- #
 def normalize_all_metadata(backup=True, dry_run=False):
-    """读取并规范化所有元数据记录，确保字段命名一致。
-    
+    """读取并规范化所有元数据记录（调用新的两阶段处理函数）。
+
     Args:
         backup (bool): 是否创建备份
         dry_run (bool): 是否只模拟运行不实际修改
-        
+
     Returns:
         tuple: (成功规范化数量, 总记录数)
     """
-    logger.info("开始规范化元数据...")
-    
+    logger.info("开始规范化元数据 (调用两阶段处理)...")
+
     # 1. 加载所有元数据
     all_tasks = load_all_metadata(logger)
     if not all_tasks:
         logger.error("无法加载元数据或元数据为空")
         return (0, 0)
-    
+
     total_count = len(all_tasks)
-    logger.info(f"已加载{total_count}条元数据记录")
-    
+    logger.info(f"已加载{total_count}条原始元数据记录")
+
     # 2. 如果需要，创建备份
     if backup and not dry_run:
         try:
             backup_path = f"{METADATA_FILENAME}.bak.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            # 读取原始文件内容进行备份
-            original_content = None
+            # 直接复制原始文件进行备份，因为加载可能已丢失信息
             if os.path.exists(METADATA_FILENAME):
-                with open(METADATA_FILENAME, 'r', encoding='utf-8') as f_in:
-                    try:
-                        original_content = json.load(f_in)
-                    except json.JSONDecodeError:
-                        logger.warning("原始元数据文件解析失败，备份可能不完整")
-                        # If JSON invalid, copy file directly
-                        shutil.copy2(METADATA_FILENAME, backup_path)
-                        logger.info(f"已将无法解析的元数据文件复制到: {backup_path}")
-                        original_content = None # Reset to avoid dumping invalid JSON
-
-            if original_content:
-                with open(backup_path, 'w', encoding='utf-8') as f_out:
-                    json.dump(original_content, f_out, indent=4, ensure_ascii=False)
-                logger.info(f"已创建元数据备份: {backup_path}")
-            elif not os.path.exists(METADATA_FILENAME):
+                 shutil.copy2(METADATA_FILENAME, backup_path)
+                 logger.info(f"已创建元数据备份: {backup_path}")
+            else:
                  logger.info("原始元数据文件不存在，无需备份")
-            # Else: file exists but couldn't be parsed, backup already handled
-
         except Exception as e:
             logger.error(f"创建备份失败: {str(e)}")
-            # 不应因为备份失败而中止规范化，继续执行
-            # return (0, total_count)
-    
-    # 3. 统一处理每条记录，构建新的列表
-    normalized_tasks_list = []
-    processed_count = 0
-    skipped_count = 0
-    
-    for task in all_tasks:
-        original_task_copy = task.copy() # 用于比较
-        job_id = task.get('job_id')
-        if not job_id:
-            logger.warning(f"跳过缺少job_id的记录: {task.get('id') or '未知ID'}")
-            skipped_count += 1
-            continue
-        
-        # 使用normalize_api_response函数统一格式化
-        normalized = normalize_api_response(logger, task)
-        
-        # 确保保留关键字段
-        if not normalized:
-            logger.warning(f"规范化任务{job_id}失败，跳过")
-            skipped_count += 1
-            continue
-            
-        # --- 确保关键字段存在 --- #
-        normalized['job_id'] = job_id # 确保job_id最终存在
-        
-        # 确保id存在
-        if 'id' not in normalized or not normalized['id']:
-            normalized['id'] = str(uuid.uuid4()) # 生成新的本地ID
-            logger.debug(f"任务{job_id}缺少本地id，已生成: {normalized['id']}")
-        
-        # 确保有正确的时间戳
-        if 'created_at' not in normalized:
-            # 尝试从旧字段恢复，否则使用当前时间
-            creation_time = task.get('metadata_added_at') or task.get('restored_at') or datetime.now().isoformat()
-            normalized['created_at'] = creation_time
-            logger.debug(f"任务{job_id}缺少created_at，已设置: {creation_time}")
+            # 继续执行，不因备份失败而中止
 
-        # 确保有正确的状态
-        if 'status' not in normalized or not normalized['status']:
-            # 根据是否有URL判断，否则设为unknown
-            if task.get('url') or task.get('cdnImage'):
-                normalized['status'] = 'completed'
-            else:
-                normalized['status'] = 'unknown'
-            logger.debug(f"任务{job_id}缺少status，已推断: {normalized['status']}")
+    # 3. 调用新的两阶段规范化函数
+    normalized_tasks_list = normalize_all_metadata_records(logger, all_tasks)
 
-        # 处理special case: 如果是action结果，确保original_job_id和action_code存在
-        if task.get('original_job_id') and 'original_job_id' not in normalized:
-            normalized['original_job_id'] = task['original_job_id']
-        if task.get('action_code') and 'action_code' not in normalized:
-            normalized['action_code'] = task['action_code']
-            
-        # --- 打印差异 --- #
-        diff_found = False
-        diff_log = [f"任务 {job_id} (ID: {normalized.get('id')}) 规范化差异:"]
-        all_keys = sorted(list(set(list(original_task_copy.keys()) + list(normalized.keys()))))
-        
-        for key in all_keys:
-            original_value = original_task_copy.get(key)
-            normalized_value = normalized.get(key)
-            
-            if original_value is None and normalized_value is not None:
-                 diff_log.append(f"  + {key}: {normalized_value}")
-                 diff_found = True
-            elif original_value is not None and normalized_value is None:
-                 diff_log.append(f"  - {key}: {original_value}")
-                 diff_found = True
-            elif original_value != normalized_value:
-                 diff_log.append(f"  * {key}: {original_value} -> {normalized_value}")
-                 diff_found = True
-                 
-        if diff_found:
-            logger.info("\n".join(diff_log))
-        else:
-             logger.debug(f"任务 {job_id} (ID: {normalized.get('id')}) 无需规范化")
-             
-        # 添加到新列表
-        normalized_tasks_list.append(normalized)
-        processed_count += 1
-    
+    processed_count = len(normalized_tasks_list)
+    # 注意：这里的 skipped 应该是总数减去最终处理数，包括阶段一和阶段二跳过的
+    skipped_overall = total_count - processed_count
+
     # 4. 构建最终的元数据结构并保存
     final_metadata_structure = {
         "images": normalized_tasks_list,
-        "version": "1.1" # Increment version after normalization
+        "version": "1.2" # Increment version after this significant change
     }
-    
+
     if not dry_run:
         logger.info("准备覆盖写入规范化后的元数据...")
-        # 使用底层的保存函数来覆盖写入
         save_success = _save_metadata_file(logger, METADATA_FILENAME, final_metadata_structure)
         if save_success:
-            logger.info(f"元数据规范化完成: 共处理{processed_count}条记录，跳过{skipped_count}条。文件已更新: {METADATA_FILENAME}")
+            logger.info(f"元数据规范化完成: 共处理{processed_count}条记录，跳过{skipped_overall}条。文件已更新: {METADATA_FILENAME}")
         else:
             logger.error("写入规范化后的元数据失败！请检查备份文件。")
             return (0, total_count) # Indicate failure
     else:
-        logger.info(f"[DRY RUN] 元数据规范化模拟: 将处理{processed_count}条记录，跳过{skipped_count}条。")
-        # Optionally print the structure in dry run
+        logger.info(f"[DRY RUN] 元数据规范化模拟: 将处理{processed_count}条记录，跳过{skipped_overall}条。")
         # print(json.dumps(final_metadata_structure, indent=4, ensure_ascii=False))
-    
+
     return (processed_count, total_count)
+
+
+# --- normalize_task_metadata 保持不变 (使用上一轮修改的结果) ---
+def normalize_task_metadata(task: dict, all_tasks: dict, logger) -> dict:
+    """
+    规范化单个任务的元数据，只处理概念（concept）字段，不处理type字段。
+    总是尝试追溯到根任务来获取 concept, variations, global_styles。
+
+    Args:
+        task (dict): 需要规范化的任务数据
+        all_tasks (dict): 所有任务数据的索引或列表 (期望是构建好的 index)
+        logger: 日志记录器
+
+    Returns:
+        dict: 规范化后的任务数据，主要是更新concept字段
+    """
+    if not task:
+        logger.warning("传入的任务数据为空")
+        return {}
+
+    # 创建任务的副本以避免修改原始数据
+    normalized_task = task.copy()
+    job_id = task.get('job_id', 'unknown_id') # For logging
+
+    # 处理概念 (concept), variations, global_styles
+    original_concept = task.get('concept') # Store original for logging
+    original_variations = task.get('variations')
+    original_styles = task.get('global_styles')
+    original_job_id = task.get('original_job_id')
+
+    # 只要任务有 original_job_id，就尝试追溯根任务
+    if original_job_id:
+        logger.debug(f"Task {job_id[:6]}: 有 original_job_id ({original_job_id[:6]})，尝试追溯历史...")
+        # 注意：这里 all_tasks 应该传入的是 index
+        history_chain = trace_job_history(logger, original_job_id, all_tasks) # Use original_job_id for tracing
+
+        if history_chain and len(history_chain) > 0:
+            root_task = history_chain[0]
+            root_job_id = root_task.get('job_id', 'unknown_root')
+            logger.debug(f"Task {job_id[:6]}: 找到根任务 {root_job_id[:6]}")
+
+            # 从根任务继承 concept, variations, global_styles
+            root_concept = root_task.get('concept')
+            root_variations = root_task.get('variations', '') # Default to empty string if missing
+            root_styles = root_task.get('global_styles', '') # Default to empty string if missing
+
+            # 如果根任务的概念有效（不是 None 或空字符串），则继承
+            if root_concept:
+                normalized_task['concept'] = root_concept
+                normalized_task['variations'] = root_variations
+                normalized_task['global_styles'] = root_styles
+                logger.info(f"Task {job_id[:6]}: 从根任务 {root_job_id[:6]} 继承: "
+                            f"concept ('{original_concept}' -> '{root_concept}'), "
+                            f"vars ('{original_variations}' -> '{root_variations}'), "
+                            f"styles ('{original_styles}' -> '{root_styles}')")
+            else:
+                # 如果根任务的概念无效，将当前任务概念设为 "unknown"
+                normalized_task['concept'] = "unknown"
+                normalized_task['variations'] = "" # Reset variations/styles as well
+                normalized_task['global_styles'] = ""
+                logger.warning(f"Task {job_id[:6]}: 根任务 {root_job_id[:6]} 的 concept 无效 ('{root_concept}')，"
+                               f"将当前任务 concept 设为 'unknown'")
+        else:
+            # 如果无法找到根任务（历史链断裂或根任务不存在），将当前任务概念设为 "unknown"
+            logger.warning(f"Task {job_id[:6]}: 无法追溯到 original_job_id ({original_job_id[:6]}) 的根任务，"
+                           f"将当前任务 concept ('{original_concept}') 设为 'unknown'")
+            normalized_task['concept'] = "unknown"
+            normalized_task['variations'] = "" # Reset variations/styles as well
+            normalized_task['global_styles'] = ""
+    else:
+        # --- 处理非 Action 任务 (原创任务) ---
+        concept = task.get('concept')
+        # 增加检查：如果 concept 看起来像 'from_...' 占位符，也视为无效
+        is_invalid_concept = not concept or concept == "unknown" or (isinstance(concept, str) and concept.startswith("from_"))
+
+        if is_invalid_concept:
+            # 如果原创任务的概念无效（空、unknown 或 from_），则设为 "unknown"
+            if concept != "unknown": # Log only if it was empty/None/from_...
+                 logger.info(f"Task {job_id[:6]}: 原创任务概念无效 ('{concept}')，设置为 'unknown'")
+            normalized_task['concept'] = "unknown"
+            # 当 concept 无效时，也清空 variations 和 styles
+            normalized_task['variations'] = ""
+            normalized_task['global_styles'] = ""
+        else:
+            # 保持原有有效的概念值
+            logger.debug(f"Task {job_id[:6]}: 原创任务，保持有效概念 '{concept}'")
+            # 确保 variations 和 global_styles 字段存在且为字符串
+            if 'variations' not in normalized_task or normalized_task['variations'] is None:
+                normalized_task['variations'] = ""
+            if 'global_styles' not in normalized_task or normalized_task['global_styles'] is None:
+                normalized_task['global_styles'] = ""
+
+    return normalized_task
 
 def main():
     """主入口函数"""
     parser = argparse.ArgumentParser(description='元数据规范化工具')
     parser.add_argument('--no-backup', action='store_true', help='不创建备份')
     parser.add_argument('--dry-run', action='store_true', help='仅模拟运行不实际修改')
-    
+
     args = parser.parse_args()
-    
+
+    # 调用旧的入口函数，它内部会调用新的两阶段处理
     processed_count, total_count = normalize_all_metadata(
-        backup=not args.no_backup, 
+        backup=not args.no_backup,
         dry_run=args.dry_run
     )
-    
+
     skipped = total_count - processed_count
     if processed_count == 0 and total_count > 0:
         print(f"错误: 未能规范化任何记录 (总记录数: {total_count}, 跳过: {skipped})")
@@ -219,4 +414,4 @@ def main():
         return 0
 
 if __name__ == "__main__":
-    sys.exit(main()) 
+    sys.exit(main())

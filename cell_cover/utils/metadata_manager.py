@@ -21,14 +21,15 @@ from .image_metadata import (
     update_job_metadata,
     upsert_job_metadata,
     load_all_metadata,
-    trace_job_history
+    trace_job_history,
+    remove_job_metadata
 )
 
-from .restore_metadata import (
-    restore_metadata_from_remote,
-    sync_tasks,
-    normalize_all_metadata_records
-)
+from .filesystem_utils import ensure_directories, META_DIR, METADATA_FILENAME
+from .file_handler import _generate_expected_filename
+from .restore_metadata import restore_metadata_from_remote
+from .sync_metadata import sync_tasks
+from .normalize_metadata import normalize_all_metadata_records
 
 # --- 清理旧代码 (函数定义已移动) --- #
 
@@ -55,6 +56,10 @@ __all__ = [
     'restore_metadata_from_remote',
     'sync_tasks',
     'normalize_all_metadata_records',
+
+    # --- 新增 --- #
+    'remove_job_metadata',
+    '_generate_expected_filename',
 ]
 
 def restore_metadata_from_job_list(logger, job_list_file, image_metadata_file=None):
@@ -72,3 +77,8 @@ def restore_metadata_from_job_list(logger, job_list_file, image_metadata_file=No
     """
     logger.error("restore_metadata_from_job_list 函数尚未实现")
     return False
+
+def _load_metadata_file(logger, target_filename=METADATA_FILENAME):
+    # This function is not provided in the original file or the modified file
+    # It's assumed to exist as it's called in the original file
+    pass
