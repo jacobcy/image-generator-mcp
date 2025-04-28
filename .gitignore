@@ -29,6 +29,7 @@ logs/
 # Runtime data / Generated files
 metadata/
 cell_cover/metadata/
+.config/
 
 # OS / Editor specific
 .DS_Store
