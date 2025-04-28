@@ -50,7 +50,32 @@ app = typer.Typer(
 )
 CELL_COVER_DIR = os.path.dirname(os.path.abspath(__file__))
 
-ACTION_CHOICES = ["variation1", "variation2", "variation3", "variation4", "upscale2", "upscale4", "reroll"]
+# Define available actions and their descriptions globally
+ACTION_CHOICES = [
+    "variation1", "variation2", "variation3", "variation4", 
+    "upsample1", "upsample2", "upsample3", "upsample4",
+    "reroll", "zoom_out_1.5", "zoom_out_2", 
+    "pan_up", "pan_down", "pan_left", "pan_right"
+]
+
+ACTION_DESCRIPTIONS = {
+    "variation1": "Create variation 1",
+    "variation2": "Create variation 2",
+    "variation3": "Create variation 3",
+    "variation4": "Create variation 4",
+    "upsample1": "Upscale image 1",
+    "upsample2": "Upscale image 2",
+    "upsample3": "Upscale image 3",
+    "upsample4": "Upscale image 4",
+    "reroll": "Reroll the job",
+    "zoom_out_1.5": "Zoom out 1.5x",
+    "zoom_out_2": "Zoom out 2x",
+    "pan_up": "Pan image up",
+    "pan_down": "Pan image down",
+    "pan_left": "Pan image left",
+    "pan_right": "Pan image right",
+    # Add more descriptions as needed
+}
 
 def common_setup(verbose: bool):
     logger = setup_logging(CELL_COVER_DIR, verbose)
@@ -66,11 +91,13 @@ def common_setup(verbose: bool):
 
 @app.command()
 def list_concepts(verbose: bool = False):
+    """List available creative concepts."""
     logger, config = common_setup(verbose)
     handle_list_concepts(config)
 
 @app.command()
 def variations(concept_key: str, verbose: bool = False):
+    """List available variations for a specific concept."""
     logger, config = common_setup(verbose)
     class Args: pass
     args = Args()
@@ -83,8 +110,8 @@ def generate(
     concept: Optional[str] = typer.Option(None, "--concept", "-c"),
     prompt: Optional[str] = typer.Option(None, "--prompt", "-p"),
     variation: Optional[List[str]] = typer.Option(None, "--variation", "-var"),
-    aspect: str = typer.Option("cell_cover", "--aspect", "-ar"),
-    quality: str = typer.Option("high", "--quality", "-q"),
+    aspect: str = typer.Option("cover", "--aspect", "-ar"),
+    quality: str = typer.Option("standard", "--quality", "-q"),
     version: str = typer.Option("v6", "--version", "-ver"),
     cref: Optional[str] = None,
     style: Optional[List[str]] = None,
@@ -92,6 +119,7 @@ def generate(
     save_prompt: bool = False,
     verbose: bool = False
 ):
+    """Generate only the Midjourney prompt text (does not submit)."""
     logger, config = common_setup(verbose)
     class Args: pass
     args = Args()
@@ -138,6 +166,7 @@ def create(
     notify_id: Optional[str] = None,
     verbose: bool = False
 ):
+    """Create a new Midjourney image generation task."""
     logger, config = common_setup(verbose)
     api_key = get_api_key(logger)
     if not api_key:
@@ -171,6 +200,7 @@ def recreate(
     cref: Optional[str] = None,
     verbose: bool = False
 ):
+    """Recreate an image using a previous job's prompt and seed."""
     logger, config = common_setup(verbose)
     api_key = get_api_key(logger)
     if not api_key:
@@ -186,22 +216,38 @@ def recreate(
 
 @app.command()
 def select(
-    image_path: Optional[str] = None,
-    last_job: bool = False,
-    last_succeed: bool = False,
-    select: List[str] = typer.Option(..., "--select", "-s", help="选择要保存的部分", rich_help_panel="Required", show_default=False),
-    output_dir: Optional[str] = None,
+    identifier: Optional[str] = typer.Argument(None, help="要处理的任务的 Job ID 或其他标识符 (默认: 最近成功任务)"),
+    select_parts: List[str] = typer.Option(..., "--select", "-s", help="选择要保存的部分 (例如 u1 u3)", rich_help_panel="Required", show_default=False, metavar="PARTS"),
+    output_dir: Optional[str] = typer.Option(None, help="指定输出目录 (默认与原图相同)"),
     verbose: bool = False
 ):
+    """Split a 4-grid image (from upscale) and save selected parts."""
     logger, _ = common_setup(verbose)
-    class Args: pass
+    
+    # --- Determine the target job ID ---
+    target_job_id = None
+    if identifier:
+        # TODO: Add logic here to potentially resolve identifier prefixes if needed
+        target_job_id = identifier 
+        logger.info(f"使用提供的标识符: {target_job_id}")
+    else:
+        # Default behavior: use last successful job
+        target_job_id = read_last_succeed_job_id(logger)
+        if not target_job_id:
+            logger.error("未提供标识符，且无法找到最近成功的任务 ID。请先成功运行一个任务或提供一个标识符。")
+            raise typer.Exit(code=1)
+        logger.info(f"未提供标识符，使用最近成功任务 ID: {target_job_id}")
+
+    # --- Prepare args for handle_select ---
+    # Assuming handle_select can work with job_id passed via args
+    class Args: pass 
     args = Args()
-    args.image_path = image_path
-    args.last_job = last_job
-    args.last_succeed = last_succeed
-    args.select = select
+    args.job_id = target_job_id # Adding job_id to args
+    args.select = select_parts  # Pass the selected parts (renamed variable)
     args.output_dir = output_dir
     args.verbose = verbose
+    
+    # handle_select function needs to be adapted to use args.job_id
     handle_select(args, logger)
 
 @app.command()
@@ -215,6 +261,7 @@ def view(
     history: bool = False,
     verbose: bool = False
 ):
+    """View details of a specific task (local metadata and API status)."""
     logger, _ = common_setup(verbose)
     api_key = get_api_key(logger)
     if not api_key:
@@ -240,6 +287,7 @@ def blend(
     interactive: bool = False,
     verbose: bool = False
 ):
+    """Blend 2 to 5 images to create a new image."""
     logger, config = common_setup(verbose)
     api_key = get_api_key(logger)
     if not api_key:
@@ -265,6 +313,7 @@ def describe(
     language: Optional[str] = None,
     verbose: bool = False
 ):
+    """Generate prompt suggestions based on an input image."""
     logger, _ = common_setup(verbose)
     api_key = get_api_key(logger)
     if not api_key:
@@ -335,7 +384,7 @@ def action(
     mode: str = typer.Option("fast", "--mode", "-m", help="生成模式"),
     verbose: bool = False
 ):
-    from .cli import ACTION_CHOICES, ACTION_DESCRIPTIONS  # import here to avoid circular import if any
+    """Perform an action (upscale, variation, etc.) on an existing task."""
     logger, _ = common_setup(verbose)
     if list_:
         print("可用的操作代码:")

@@ -105,7 +105,7 @@
     "portrait": "--ar 3:4",
     "square": "--ar 1:1",
     "landscape": "--ar 4:3",
-    "cell_cover": "--ar 3:4"
+    "cover": "--ar 16:9"
   },
   "quality_settings": {
     "standard": "--q 1",
