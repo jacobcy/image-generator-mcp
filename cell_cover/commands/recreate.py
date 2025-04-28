@@ -9,20 +9,28 @@ from ..utils.metadata_manager import find_initial_job_info, save_image_metadata
 # download_and_save_image now handles saving metadata via metadata_manager
 from ..utils.image_handler import download_and_save_image
 from ..utils.image_uploader import process_cref_image
-from ..utils.api import check_prompt, call_imagine_api, poll_for_result, normalize_api_response
+from ..utils.api import normalize_api_response
+from ..utils.api_client import check_prompt, call_imagine_api, poll_for_result
 from ..utils.filesystem_utils import write_last_job_id, write_last_succeed_job_id
 from ..utils.image_metadata import load_all_metadata, _build_metadata_index
 from ..utils.metadata_manager import _generate_expected_filename
 
 logger = logging.getLogger(__name__)
 
-def handle_recreate(args, config, logger, api_key):
+def handle_recreate(
+    identifier: str,
+    cref: Optional[str] = None,
+    hook_url: Optional[str] = None,
+    config=None,
+    logger=None,
+    api_key=None
+):
     """处理 'recreate' 命令。"""
-    logger.info(f"正在查找任务 '{args.identifier}' 的原始信息...")
-    original_job_info = find_initial_job_info(logger, args.identifier)
+    logger.info(f"正在查找任务 '{identifier}' 的原始信息...")
+    original_job_info = find_initial_job_info(logger, identifier)
 
     if not original_job_info:
-        error_msg = f"在本地元数据中找不到任务 '{args.identifier}' 的原始信息。"
+        error_msg = f"在本地元数据中找不到任务 '{identifier}' 的原始信息。"
         logger.error(error_msg)
         print(f"错误：{error_msg}") # Keep user feedback
         return 1
@@ -33,7 +41,7 @@ def handle_recreate(args, config, logger, api_key):
     original_job_id = original_job_info.get("job_id") # Needed for linking
 
     if not original_prompt or original_seed is None:
-        error_msg = f"任务 '{args.identifier}' 的元数据缺少 Prompt 或 Seed。"
+        error_msg = f"任务 '{identifier}' 的元数据缺少 Prompt 或 Seed。"
         logger.error(error_msg)
         print(f"错误：{error_msg}") # Keep user feedback
         return 1
@@ -46,13 +54,13 @@ def handle_recreate(args, config, logger, api_key):
 
     # Handle cref if provided for recreate
     cref_url = None
-    if args.cref:
+    if cref:
         # Construct the warning message separately
         if "--v 6" not in original_prompt:
-             warning_msg = "警告：--cref 参数通常与 Midjourney v6 一起使用。"
-             logger.warning(warning_msg)
-             print(warning_msg) # Keep user feedback
-        cref_url = process_cref_image(logger, args.cref)
+            warning_msg = "警告：--cref 参数通常与 Midjourney v6 一起使用。"
+            logger.warning(warning_msg)
+            print(warning_msg) # Keep user feedback
+        cref_url = process_cref_image(logger, cref)
         if not cref_url:
             # Error already logged/printed in process_cref_image
             return 1
@@ -74,7 +82,7 @@ def handle_recreate(args, config, logger, api_key):
         logger,
         api_key,
         {"prompt": recreate_prompt, "mode": "relax"}, # Default mode
-        hook_url=args.hook_url,
+        hook_url=hook_url,
         cref_url=cref_url
     )
 
@@ -86,100 +94,107 @@ def handle_recreate(args, config, logger, api_key):
         seed_for_save = original_seed
         concept_key_for_save = original_concept
 
-        if not args.hook_url:
+        if not hook_url:
             logger.info("未提供 Webhook URL，将开始轮询结果...")
             print("Polling for recreate result...") # Keep user feedback
-            final_result = poll_for_result(logger, job_id, api_key)
-            if final_result and final_result.get("image_url"): # Use image_url
-                logger.info(f"重新生成任务完成，图像 URL: {final_result['image_url']}")
-                # 标准化结果用于保存和命名
-                normalized_result = normalize_api_response(logger, final_result)
-                normalized_result['job_id'] = job_id # Ensure job_id is in the dict
-                normalized_result['original_job_id'] = original_job_id # Record original job for tracing
-                normalized_result['prefix'] = "recreate_" # <--- Add prefix for naming
-                
-                # --- 生成期望的文件名 --- #
-                try:
-                    # 加载元数据以构建索引
-                    all_tasks = load_all_metadata(logger)
-                    all_tasks_index = _build_metadata_index(all_tasks)
-                    # 传递 normalized_result (包含 prefix)
-                    expected_filename = _generate_expected_filename(logger, normalized_result, all_tasks_index)
-                except Exception as e:
-                    logger.error(f"为任务 {job_id} 生成期望文件名时出错: {e}，将使用 job_id 作为备用名。")
-                    expected_filename = f"recreate_{job_id}.png"
-                # ---------------------- #
+            poll_response = poll_for_result(logger, job_id, api_key) # Renamed variable
 
-                image_url = normalized_result.get('url')
-                if image_url:
-                    logger.info("下载图像...")
-                    download_success, saved_path, image_seed = download_and_save_image(
-                        logger,
-                        image_url,
-                        job_id, # New job ID
-                        normalized_result.get('prompt'),
-                        expected_filename, # <--- Pass generated filename
-                        normalized_result.get('concept'),
-                        normalized_result.get('variations'),
-                        normalized_result.get('global_styles'),
-                        original_job_id, # Pass original job ID
-                        None, # action_code is None for recreate
-                        None, # components
-                        normalized_result.get('seed')
-                        # original_concept (handled by generator)
-                        # prefix (handled by generator)
-                    )
+            if poll_response:
+                final_status, api_data = poll_response # Unpack tuple
 
-                    if download_success:
-                        final_seed = image_seed if image_seed is not None else seed_for_save
-                        save_image_metadata(
-                            logger,
-                            final_result.get("image_id", str(uuid.uuid4())),
-                            job_id_for_save,
-                            os.path.basename(saved_path),
-                            saved_path,
-                            final_result["image_url"],
-                            prompt_text_for_save,
-                            concept_key_for_save,
-                            None, # variations
-                            None, # styles
-                            final_result.get("components"),
-                            final_seed,
-                            original_job_id # Link to original
-                        )
-                        logger.info(f"重新生成的图像和元数据已保存: {saved_path}")
-                        print(f"重新生成的图像和元数据已保存: {saved_path}") # Keep user feedback
-                        write_last_succeed_job_id(logger, job_id)
-                        return 0
+                if final_status == "SUCCESS" and isinstance(api_data, dict):
+                    image_url_key = 'url' if 'url' in api_data else 'image_url' # Adapt to potential key
+                    image_url = api_data.get(image_url_key)
+
+                    if image_url:
+                        logger.info(f"重新生成任务完成，图像 URL: {image_url}")
+                        # 标准化结果用于保存和命名
+                        normalized_result = normalize_api_response(logger, api_data) # Use api_data
+                        normalized_result['job_id'] = job_id # Ensure job_id is in the dict
+                        normalized_result['original_job_id'] = original_job_id # Record original job for tracing
+                        normalized_result['prefix'] = "recreate" # Use consistent prefix
+
+                        # --- 生成期望的文件名 --- #
+                        try:
+                            all_tasks = load_all_metadata(logger)
+                            all_tasks_index = _build_metadata_index(all_tasks)
+                            expected_filename = _generate_expected_filename(logger, normalized_result, all_tasks_index)
+                        except Exception as e:
+                            logger.error(f"为重新生成任务 {job_id} 生成期望文件名时出错: {e}，将使用 job_id 作为备用名。")
+                            expected_filename = f"recreate_{job_id}.png"
+                        # ---------------------- #
+
+                        # Ensure URL from normalized data for download
+                        image_url_for_download = normalized_result.get('url')
+                        if image_url_for_download:
+                            logger.info("下载图像...")
+                            download_success, saved_path, image_seed = download_and_save_image(
+                                logger,
+                                image_url_for_download, # Use normalized URL
+                                job_id, # New job ID
+                                normalized_result.get('prompt'),
+                                expected_filename, # Pass generated filename
+                                normalized_result.get('concept') or original_concept, # Inherit concept if needed
+                                None, # variations
+                                None, # global_styles
+                                original_job_id, # Pass original job ID
+                                None, # action_code is None for recreate
+                                None, # components
+                                normalized_result.get('seed') or original_seed # Use new seed or original
+                            )
+
+                            if download_success:
+                                # Metadata is saved inside download_and_save_image
+                                logger.info(f"重新生成的图像和元数据已保存: {saved_path}")
+                                print(f"重新生成的图像和元数据已保存: {saved_path}") # Keep user feedback
+                                write_last_succeed_job_id(logger, job_id)
+                                return 0
+                            else:
+                                logger.error("重新生成的图像下载或保存失败。")
+                                # print is handled inside util if logging is setup
+                                return 1
+                        else:
+                            logger.error(f"成功轮询后未能提取重新生成任务 {job_id} 的图像 URL 用于下载。")
+                            print(f"错误：成功轮询后未能提取重新生成任务 {job_id} 的图像 URL。")
+                            # Save metadata with status indicating missing URL
+                            save_image_metadata(
+                                logger, None, job_id, None, None, None,
+                                prompt_text_for_save, concept_key_for_save, None, None, None,
+                                normalized_result.get("seed") or original_seed, original_job_id,
+                                status="polling_success_no_url_for_download"
+                            )
+                            return 1
                     else:
-                        # Error should be logged by download_and_save_image
-                        # print("错误：重新生成的图像下载或保存失败。") # Redundant if logged in util
-                        return 1
+                         # SUCCESS status but no image URL
+                        logger.error(f"轮询重新生成任务成功，但未获取到图像 URL。")
+                        print(f"错误：轮询重新生成任务成功，但未获取到图像 URL。")
+                        # Save basic metadata anyway
+                        normalized_result = normalize_api_response(logger, api_data or {})
+                        save_image_metadata(
+                            logger, None, job_id, None, None, None,
+                            prompt_text_for_save, concept_key_for_save, None, None, None,
+                            normalized_result.get("seed") or original_seed, original_job_id,
+                            status="polling_success_no_url"
+                        )
+                        return 1 # Return failure
+                elif final_status == "FAILED":
+                    # Handle FAILED status
+                    error_message = api_data.get('message', '未知错误') if isinstance(api_data, dict) else '未知错误'
+                    logger.error(f"轮询重新生成任务失败。API 消息: {error_message}")
+                    print(f"错误：轮询重新生成任务失败。API 消息: {error_message}")
+                    # Basic metadata already saved
+                    return 1 # Return failure
+                else:
+                    # Handle unexpected status
+                    logger.error(f"轮询重新生成任务结果返回意外状态: {final_status}")
+                    print(f"错误：轮询重新生成任务结果返回意外状态: {final_status}")
+                    return 1 # Return failure
             else:
-                status = final_result.get('status') if final_result else 'N/A'
-                # Construct the message string separately
-                error_msg = f"轮询重新生成任务结果失败或未获取到图像 URL。最后状态: {status}"
-                logger.error(error_msg)
-                print(f"错误：{error_msg}") # Keep user feedback
-                if job_id_for_save:
-                     save_image_metadata(
-                          logger,
-                          None, # image_id
-                          job_id_for_save,
-                          None, # filename
-                          None, # filepath
-                          None, # url
-                          prompt_text_for_save,
-                          concept_key_for_save,
-                          None, # variations
-                          None, # styles
-                          final_result, # components (or full result? check usage)
-                          seed_for_save,
-                          original_job_id # Link to original
-                     )
-                     logger.info(f"已保存重新生成任务 {job_id_for_save} 的基本元数据（无图像）。")
-                     write_last_job_id(logger, job_id)
-                return 1
+                # Handle poll_for_result returning None (timeout or other poll failure)
+                logger.error(f"轮询重新生成任务 {job_id} 失败或超时。")
+                print(f"错误：轮询重新生成任务 {job_id} 失败或超时。")
+                # Basic metadata already saved
+                return 1 # Return failure
         else: # Webhook provided
             logger.info("提供了 Webhook URL，重新生成任务将在后台处理。")
             save_image_metadata(

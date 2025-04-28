@@ -15,9 +15,8 @@ def handle_list_concepts(config):
         print()
     return 0
 
-def handle_list_variations(config, args):
+def handle_list_variations(config, concept_key: str):
     """处理 'variations' 命令，列出指定概念的所有变体。"""
-    concept_key = args.concept_key
     concepts = config.get("concepts", {})
     if concept_key not in concepts:
         print(f"错误：找不到创意概念 '{concept_key}'")

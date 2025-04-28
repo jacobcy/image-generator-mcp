@@ -16,7 +16,13 @@ from .image_metadata import (
     remove_job_metadata
 )
 from .image_handler import download_and_save_image
-from .api import poll_for_result, normalize_api_response
+from .metadata_manager import find_initial_job_info
+
+# 区分 api.py (包含 normalize_api_response) 和 api_client.py (包含实际 API 调用)
+from .api import normalize_api_response
+from .api_client import poll_for_result
+# from .api import poll_for_result, normalize_api_response # 旧的导入方式
+
 from .config import get_api_key
 from .filesystem_utils import (
     META_DIR, METADATA_FILENAME, IMAGE_DIR,
@@ -102,55 +108,51 @@ def sync_tasks(
             logger.info(f"[{i+1}/{len(tasks_to_process)}] 处理任务 {job_id[:6]}... (当前状态: {task.get('status', 'None')}) ")
 
             try:
-                result = poll_for_result(logger, job_id, api_key)
+                poll_response = poll_for_result(logger, job_id, api_key) # Renamed variable
 
-                if result:
-                    # 打印原始 API 响应以便调试
-                    logger.debug(f"任务 {job_id} 的 API 响应: {result}")
+                if poll_response:
+                    final_status, api_data = poll_response # Unpack tuple
+                    logger.debug(f"任务 {job_id} 的 API 轮询结果: status={final_status}, data={api_data!r}") # Log unpacked result
 
-                    # 使用标准化函数处理 API 响应
-                    normalized_result = normalize_api_response(logger, result)
-                    if not normalized_result:
+                    # 使用标准化函数处理 API 响应数据 (api_data)
+                    normalized_result = normalize_api_response(logger, api_data if isinstance(api_data, dict) else {}) # Handle non-dict api_data
+                    if not normalized_result and final_status != 'FAILED': # Don't fail just because FAILED response couldn't normalize fully
                         logger.warning(f"规范化来自 API 的任务 {job_id} 的数据失败。")
                         update_job_metadata(logger, job_id, {'status': 'sync_error'})
                         failed_count += 1
                         continue
 
-                    # 检查标准化后的数据是否包含 components 字段，如果有，将其移除
-                    if "components" in normalized_result:
-                        logger.debug(f"从标准化结果中移除 components 字段: {normalized_result['components']}")
-                        del normalized_result["components"]
+                    # 检查标准化后的数据是否包含 components 字段，如果有，将其移除 (already done in normalize)
+                    # if "components" in normalized_result:
+                    #    logger.debug(f"从标准化结果中移除 components 字段: {normalized_result['components']}")
+                    #    del normalized_result["components"]
 
                     normalized_result['job_id'] = job_id # Ensure job_id
-                    api_status = normalized_result.get('status')
+                    # Use the reliable final_status from the tuple
+                    api_status_from_poll = final_status
 
                     # === 核心处理逻辑 ===
-                    if api_status == 'failed':
-                        error_message = normalized_result.get('fail_reason', '未知原因')
+                    if api_status_from_poll == 'FAILED':
+                        error_message = api_data.get('message', '未知原因') if isinstance(api_data, dict) else '未知原因'
                         logger.error(f"任务 {job_id} 在 API 端失败 (原因: {error_message})，将从本地元数据中移除。")
-                        # 直接删除失败的任务记录，而不是添加到待删除列表
                         if remove_job_metadata(logger, job_id):
                             logger.info(f"已从元数据中删除失败的任务 {job_id}")
-                            if not silent:
-                                print(f"已从元数据中删除失败的任务 {job_id}")
+                            if not silent: print(f"已从元数据中删除失败的任务 {job_id}")
                         else:
                             logger.warning(f"无法从元数据中删除失败的任务 {job_id}")
-                            if not silent:
-                                print(f"警告：无法从元数据中删除失败的任务 {job_id}")
+                            if not silent: print(f"警告：无法从元数据中删除失败的任务 {job_id}")
                         failed_count += 1
                         continue # 处理下一个任务
 
-                    elif api_status == 'completed':
-                        # 更新元数据为 API 的最新状态
+                    elif api_status_from_poll == 'SUCCESS':
+                        # 更新元数据为 API 的最新状态 (use normalized_result)
                         upsert_job_metadata(logger, job_id, normalized_result)
 
                         image_url = normalized_result.get('url')
                         if image_url:
-                            # 尝试下载
-                            logger.info(f"任务 {job_id} API状态为 completed，尝试下载图像...")
+                            logger.info(f"任务 {job_id} API状态为 SUCCESS，尝试下载图像...")
                             # --- 生成期望的文件名 --- #
                             try:
-                                # 重新生成 index 可能效率不高，但确保数据最新
                                 current_metadata_for_naming = load_all_metadata(logger)
                                 all_tasks_index = _build_metadata_index(current_metadata_for_naming)
                                 expected_filename = _generate_expected_filename(logger, normalized_result, all_tasks_index)
@@ -177,37 +179,37 @@ def sync_tasks(
                                 filepath = download_result_info
                                 logger.info(f"任务 {job_id}: 图像下载成功，保存至 {filepath}")
                                 filename = os.path.basename(filepath) if filepath else None
-                                update_job_metadata(logger, job_id, {'status': 'completed', 'filepath': filepath, 'filename': filename}) # 确认状态和路径
+                                # Update status to completed *after* successful download
+                                update_job_metadata(logger, job_id, {'status': 'completed', 'filepath': filepath, 'filename': filename})
                                 success_count += 1
                             else:
-                                # 下载失败，直接标记为 file_missing
                                 logger.warning(f"任务 {job_id}: 图像下载失败 ({download_result_info})。状态标记为 'file_missing'。")
-                                update_job_metadata(logger, job_id, {'status': 'file_missing', 'filepath': None, 'filename': None}) # 清除路径信息
-                                failed_count += 1 # 计入失败，因为目标是下载
+                                update_job_metadata(logger, job_id, {'status': 'file_missing', 'filepath': None, 'filename': None})
+                                failed_count += 1
                         else:
-                             # API 完成但无 URL
-                            logger.warning(f"任务 {job_id}: API状态为 completed 但没有图像 URL。状态标记为 'completed_no_url'。")
+                             # API SUCCESS 但无 URL
+                            logger.warning(f"任务 {job_id}: API状态为 SUCCESS 但没有图像 URL。状态标记为 'completed_no_url'。")
                             update_job_metadata(logger, job_id, {'status': 'completed_no_url', 'filepath': None, 'filename': None})
                             skipped_count += 1
 
                     else: # API 返回其他状态 (pending, submitted, etc.)
-                        logger.info(f"任务 {job_id}: API状态为 {api_status}，更新本地状态。")
-                        update_job_metadata(logger, job_id, {'status': api_status})
+                        # Use the status directly from the poll response tuple
+                        logger.info(f"任务 {job_id}: API状态为 {api_status_from_poll}，更新本地状态。")
+                        update_job_metadata(logger, job_id, {'status': api_status_from_poll})
                         skipped_count += 1 # 算作跳过，因为没有最终成功
 
                 else:
-                    # API 调用成功但未返回结果 (可能仍在处理中)
-                    logger.warning(f"任务 {job_id}: API 查询无结果 (可能仍在处理中)。标记为 polling_failed。")
+                    # poll_for_result returned None (timeout or other poll failure)
+                    logger.warning(f"任务 {job_id}: API 查询失败或超时。标记为 polling_failed。")
                     update_job_metadata(logger, job_id, {'status': 'polling_failed'})
-                    skipped_count += 1
+                    skipped_count += 1 # Count as skipped as no final state determined
 
             except Exception as e:
-                logger.exception(f"处理任务{job_id}时发生意外错误: {str(e)}")
+                logger.exception(f"处理任务 {job_id} 时发生意外错误: {str(e)}")
                 try:
                     update_job_metadata(logger, job_id, {'status': 'sync_error'})
                 except Exception as update_err:
                     logger.error(f"尝试将任务 {job_id} 状态更新为 sync_error 时失败: {update_err}")
-                logger.error(f"任务 {job_id}: 同步失败: {str(e)}")
                 failed_count += 1
     else:
         logger.info("没有需要检查 API 状态或文件的任务。")
@@ -218,84 +220,64 @@ def sync_tasks(
         logger.error("无法重新加载元数据以处理源任务，跳过源任务同步。")
     else:
         task_id_index = _build_metadata_index(all_tasks)
-        tasks_with_missing_original = []
-        processed_original_ids = set()
+        missing_original_ids = set()
+        tasks_referencing_missing = []
+
         for task in all_tasks:
             original_job_id = task.get('original_job_id')
-            # 检查 original_job_id 是否是有效的 UUID 格式 (通常是36个字符且包含连字符)
-            # 或者至少是一个看起来像有效 job ID 的字符串 (不是操作代码如 'upsample3')
-            if original_job_id and original_job_id not in task_id_index and original_job_id not in processed_original_ids:
-                # 跳过明显是操作代码而不是 job ID 的值
-                if original_job_id.startswith(('upsample', 'variation')) and len(original_job_id) < 20:
-                    job_id_prefix = task.get('job_id', '')
-                    job_id_prefix = job_id_prefix[:6] if job_id_prefix else 'unknown'
-                    logger.warning(f"跳过任务 {job_id_prefix} 中无效的 original_job_id: '{original_job_id}'，这看起来是一个操作代码而不是 job ID")
-                    continue
-                tasks_with_missing_original.append(task) # Store the task that references the missing original
-                processed_original_ids.add(original_job_id)
+            if original_job_id and original_job_id not in task_id_index:
+                # Skip potentially invalid IDs early
+                if not (len(original_job_id) == 36 and original_job_id.count('-') == 4):
+                     job_id_prefix = task.get('job_id', '')[:6] or 'unknown'
+                     logger.warning(f"跳过任务 {job_id_prefix} 中无效的 original_job_id: '{original_job_id}'，格式不符合预期。")
+                     continue
 
-        # 处理引用未知源任务的情况 (逻辑类似，但下载失败标记为 file_missing)
-        if tasks_with_missing_original:
-            logger.warning(f"找到 {len(tasks_with_missing_original)} 个任务引用了未知的源任务，尝试同步...")
+                if original_job_id not in missing_original_ids:
+                    missing_original_ids.add(original_job_id)
+                    tasks_referencing_missing.append(original_job_id) # Store the ID to fetch
 
-            for i, task_referencing in enumerate(tasks_with_missing_original):
-                original_job_id = task_referencing.get('original_job_id') # The ID we need to check
-                referencing_job_id = task_referencing.get('job_id')
+        if tasks_referencing_missing:
+            logger.warning(f"找到 {len(tasks_referencing_missing)} 个未知的源任务 ID，尝试同步...")
 
-                logger.info(f"同步源任务 {original_job_id} (被 {referencing_job_id} 引用)...")
+            for i, original_job_id in enumerate(tasks_referencing_missing):
+                logger.info(f"[{i+1}/{len(tasks_referencing_missing)}] 同步源任务 {original_job_id[:6]}...")
 
                 try:
-                    logger.info(f"开始轮询源任务 {original_job_id}...")
-                    # 添加额外的检查，确保 original_job_id 看起来像一个有效的 job ID
-                    if not original_job_id or len(original_job_id) < 20 or original_job_id.startswith(('upsample', 'variation')):
-                        logger.error(f"跳过轮询无效的 original_job_id: '{original_job_id}'，这看起来不是一个有效的 job ID")
-                        failed_count += 1
-                        continue
-                    result = poll_for_result(logger, original_job_id, api_key)
+                    poll_response = poll_for_result(logger, original_job_id, api_key) # Call poll
 
-                    if result:
-                        logger.debug(f"源任务 {original_job_id} 的 API 响应: {result}")
-                        # 使用标准化函数处理 API 响应
-                        normalized_result = normalize_api_response(logger, result)
-                        if not normalized_result:
+                    if poll_response:
+                        final_status, api_data = poll_response # Unpack
+                        logger.debug(f"源任务 {original_job_id} 的 API 轮询结果: status={final_status}, data={api_data!r}")
+
+                        # Normalize API data
+                        normalized_result = normalize_api_response(logger, api_data if isinstance(api_data, dict) else {})
+                        if not normalized_result and final_status != 'FAILED':
                             logger.warning(f"无法规范化来自 API 的源任务 {original_job_id} 的数据。")
                             failed_count += 1
                             continue
 
-                        # 检查标准化后的数据是否包含 components 字段，如果有，将其移除
-                        if "components" in normalized_result:
-                            logger.debug(f"从标准化结果中移除 components 字段: {normalized_result['components']}")
-                            del normalized_result["components"]
+                        normalized_result['job_id'] = original_job_id # Ensure job_id
+                        api_status_from_poll = final_status
 
-                        normalized_result['job_id'] = original_job_id
-                        api_status = normalized_result.get('status')
-
-                        if api_status == 'failed':
-                            error_message = normalized_result.get('fail_reason', '未知原因')
-                            logger.error(f"源任务 {original_job_id} 在 API 端失败 (原因: {error_message})，将从本地元数据中移除。")
-                            # 直接删除失败的源任务记录
-                            if remove_job_metadata(logger, original_job_id):
-                                logger.info(f"已从元数据中删除失败的源任务 {original_job_id}")
-                                if not silent:
-                                    print(f"已从元数据中删除失败的源任务 {original_job_id}")
-                            else:
-                                logger.warning(f"无法从元数据中删除失败的源任务 {original_job_id}")
-                                if not silent:
-                                    print(f"警告：无法从元数据中删除失败的源任务 {original_job_id}")
+                        if api_status_from_poll == 'FAILED':
+                            error_message = api_data.get('message', '未知原因') if isinstance(api_data, dict) else '未知原因'
+                            logger.error(f"源任务 {original_job_id} 在 API 端失败 (原因: {error_message})。不会在本地创建记录。")
+                            # We don't have it locally, so nothing to remove
                             failed_count += 1
                             continue
 
-                        # 添加源任务特有的字段，并使用 upsert 保存 (即使未完成也保存基本信息)
+                        # Add source-specific fields and save
                         normalized_result.update({
                             "concept": normalized_result.get("concept") or "source_task",
-                            "prompt": normalized_result.get("prompt") or f"Source for: {referencing_job_id}"
+                            "prompt": normalized_result.get("prompt") or f"Source task: {original_job_id}"
                         })
                         upsert_job_metadata(logger, original_job_id, normalized_result)
+                        logger.info(f"源任务 {original_job_id}: 基本信息已保存/更新 (状态: {api_status_from_poll})。")
 
-                        if api_status == 'completed':
+                        if api_status_from_poll == 'SUCCESS':
                             image_url = normalized_result.get('url')
                             if image_url:
-                                 # --- 生成期望的文件名 --- #
+                                 # --- Generate filename --- #
                                  try:
                                      current_metadata_for_naming = load_all_metadata(logger)
                                      all_tasks_index_for_naming = _build_metadata_index(current_metadata_for_naming)
@@ -314,11 +296,10 @@ def sync_tasks(
                                     normalized_result.get("concept"),
                                     normalized_result.get("variations", ""),
                                     normalized_result.get("global_styles", ""),
-                                    None, None, None,
+                                    None, None, None, # No original_id, action, components for source itself
                                     normalized_result.get("seed")
                                 )
 
-                                 # --- 修正这里的缩进 ---
                                  if download_success:
                                      filepath = download_result_info
                                      filename = os.path.basename(filepath) if filepath else None
@@ -326,44 +307,44 @@ def sync_tasks(
                                      logger.info(f"源任务 {original_job_id}: 成功 (信息和图像已保存)")
                                      success_count += 1
                                  else:
-                                     # 源任务下载失败 -> file_missing
                                      logger.warning(f"源任务 {original_job_id}: 信息已保存，但图像下载失败 ({download_result_info})。状态标记为 'file_missing'。")
                                      update_job_metadata(logger, original_job_id, {'status': 'file_missing', 'filepath': None, 'filename': None})
                                      failed_count += 1
-                                 # --- 结束缩进修正 ---
                             else:
-                                logger.info(f"源任务 {original_job_id}: API状态为 completed 但没有图像URL。状态标记为 'completed_no_url'。")
+                                logger.info(f"源任务 {original_job_id}: API状态为 SUCCESS 但没有图像URL。状态标记为 'completed_no_url'。")
                                 update_job_metadata(logger, original_job_id, {'status': 'completed_no_url', 'filepath': None, 'filename': None})
-                                success_count += 1 # 算成功同步信息
-                        elif api_status == 'failed':
-                            logger.warning(f"源任务 {original_job_id}: API 状态为 failed。标记为 'api_failed'。")
-                            update_job_metadata(logger, original_job_id, {'status': 'api_failed'}) # 先标记，最后统一处理
-                            failed_count += 1
-                        else:
-                            # 源任务状态非 completed 或 failed
-                            logger.info(f"源任务 {original_job_id}: API 状态为 {api_status}，已更新本地记录。")
-                            update_job_metadata(logger, original_job_id, {'status': api_status})
+                                success_count += 1 # Count info sync as success
+                        # No need for specific elif for FAILED as it's handled above
+                        elif api_status_from_poll != 'SUCCESS': # Other statuses (pending etc)
+                            logger.info(f"源任务 {original_job_id}: API 状态为 {api_status_from_poll}，本地记录已更新。")
+                            # Status already set during upsert
                             skipped_count += 1
                     else:
-                        # 无法获取源任务信息
-                        logger.warning(f"无法从API获取源任务 {original_job_id} 的信息。标记为 'source_not_found' (不保存)。")
-                        # 不再创建 placeholder 记录
+                        # poll_for_result failed for the source task
+                        logger.warning(f"无法从API获取源任务 {original_job_id} 的信息 (轮询失败/超时)。标记为 'source_poll_failed'。")
+                        # Save placeholder metadata to avoid re-polling constantly?
+                        placeholder_data = {
+                            'job_id': original_job_id,
+                            'status': 'source_poll_failed',
+                            'concept': 'source_task',
+                            'prompt': f'Source task, poll failed: {original_job_id}',
+                            'metadata_added_at': datetime.now().isoformat()
+                        }
+                        upsert_job_metadata(logger, original_job_id, placeholder_data)
                         skipped_count += 1
 
                 except Exception as e:
-                    # API调用失败，标记为要删除的源任务
-                    logger.error(f"从 API 查询源任务 {original_job_id} 时发生意外错误: {str(e)}")
-                    # 直接删除失败的源任务记录
-                    if remove_job_metadata(logger, original_job_id):
-                        logger.info(f"已从元数据中删除查询失败的源任务 {original_job_id}")
-                        if not silent:
-                            print(f"已从元数据中删除查询失败的源任务 {original_job_id}")
-                    else:
-                        logger.warning(f"无法从元数据中删除查询失败的源任务 {original_job_id}")
-                        if not silent:
-                            print(f"警告：无法从元数据中删除查询失败的源任务 {original_job_id}")
+                    logger.exception(f"同步源任务 {original_job_id} 时发生意外错误: {str(e)}")
+                    # Save placeholder metadata with error status?
+                    placeholder_data = {
+                        'job_id': original_job_id,
+                        'status': 'source_sync_error',
+                        'concept': 'source_task',
+                        'prompt': f'Source task, sync error: {original_job_id}',
+                        'metadata_added_at': datetime.now().isoformat()
+                    }
+                    upsert_job_metadata(logger, original_job_id, placeholder_data)
                     failed_count += 1
-        # <<< 源任务处理循环结束
         else:
             if not silent: logger.info("没有发现引用未知源任务的任务")
 

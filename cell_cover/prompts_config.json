@@ -90,6 +90,15 @@
         "vibrant_glow": "enhance the vibrancy and glow of the red, gold, and green/teal elements for higher contrast",
         "minimalist": "simplify the network density while clearly preserving the rhesus monkey silhouette, cleaner background"
       }
+    },
+    "wh": {
+      "name": "武汉的一天",
+      "description": "这个概念旨在捕捉武汉城市的日常生活与独特风情。从早上的第一缕阳光照在长江之上，到黄鹤楼下市民的悠闲步行；从繁忙的地铁站到充满活力的江滩公园，再到夜幕下光影交错的汉街，每一幕都展现了武汉的动态美与生活节奏。描述不仅包括自然景观、著名地标，还有市民的日常活动，反映出这座城市的活力和文化底蕴。",
+      "midjourney_prompt": "Wuhan, sunrise over the Yangtze River, bustling metro stations, leisurely stroll around Yellow Crane Tower, Jiangtan Park vitality, Hanzheng Street night lights, urban daily life, vibrant culture, cinematic lighting, wide angle view",
+      "variations": {
+        "Historical_Architecture_Focus": "Wuhan, Yellow Crane Tower, ancient architecture, cultural heritage, serene morning, detailed textures, historical atmosphere, soft lighting",
+        "Modern_Nightlife_Focus": "Wuhan nightlife, Han Street, colorful neon lights, dynamic crowds, modern architecture, urban exploration, vibrant, night photography style"
+      }
     }
   },
   "aspect_ratios": {

@@ -323,64 +323,91 @@ def normalize_task_metadata(task: dict, all_tasks: dict, logger) -> dict:
     # 只要任务有 original_job_id，就尝试追溯根任务
     if original_job_id:
         logger.debug(f"Task {job_id[:6]}: 有 original_job_id ({original_job_id[:6]})，尝试追溯历史...")
-        # 注意：这里 all_tasks 应该传入的是 index
-        history_chain = trace_job_history(logger, original_job_id, all_tasks) # Use original_job_id for tracing
+        history_chain = trace_job_history(logger, original_job_id, all_tasks)
+
+        root_concept = "unknown" # Default concept if trace fails or root has no concept
+        root_variations = ""
+        root_styles = ""
+        root_job_id = "unknown_root"
 
         if history_chain and len(history_chain) > 0:
             root_task = history_chain[0]
             root_job_id = root_task.get('job_id', 'unknown_root')
             logger.debug(f"Task {job_id[:6]}: 找到根任务 {root_job_id[:6]}")
 
-            # 从根任务继承 concept, variations, global_styles
-            root_concept = root_task.get('concept')
-            root_variations = root_task.get('variations', '') # Default to empty string if missing
-            root_styles = root_task.get('global_styles', '') # Default to empty string if missing
-
-            # 如果根任务的概念有效（不是 None 或空字符串），则继承
-            if root_concept:
-                normalized_task['concept'] = root_concept
-                normalized_task['variations'] = root_variations
-                normalized_task['global_styles'] = root_styles
-                logger.info(f"Task {job_id[:6]}: 从根任务 {root_job_id[:6]} 继承: "
-                            f"concept ('{original_concept}' -> '{root_concept}'), "
-                            f"vars ('{original_variations}' -> '{root_variations}'), "
-                            f"styles ('{original_styles}' -> '{root_styles}')")
+            root_concept_candidate = root_task.get('concept')
+            if root_concept_candidate:
+                root_concept = root_concept_candidate
+                root_variations = root_task.get('variations', '')
+                root_styles = root_task.get('global_styles', '')
             else:
-                # 如果根任务的概念无效，将当前任务概念设为 "unknown"
-                normalized_task['concept'] = "unknown"
-                normalized_task['variations'] = "" # Reset variations/styles as well
-                normalized_task['global_styles'] = ""
-                logger.warning(f"Task {job_id[:6]}: 根任务 {root_job_id[:6]} 的 concept 无效 ('{root_concept}')，"
-                               f"将当前任务 concept 设为 'unknown'")
+                logger.warning(f"Task {job_id[:6]}: 根任务 {root_job_id[:6]} 的 concept 无效 ('{root_concept_candidate}')")
+                # root_concept remains "unknown"
         else:
-            # 如果无法找到根任务（历史链断裂或根任务不存在），将当前任务概念设为 "unknown"
-            logger.warning(f"Task {job_id[:6]}: 无法追溯到 original_job_id ({original_job_id[:6]}) 的根任务，"
-                           f"将当前任务 concept ('{original_concept}') 设为 'unknown'")
-            normalized_task['concept'] = "unknown"
-            normalized_task['variations'] = "" # Reset variations/styles as well
-            normalized_task['global_styles'] = ""
+            logger.warning(f"Task {job_id[:6]}: 无法追溯到 original_job_id ({original_job_id[:6]}) 的根任务")
+            # root_concept remains "unknown"
+
+        # --- 保持继承的 concept, variations, styles --- #
+        normalized_task['concept'] = root_concept
+        normalized_task['variations'] = root_variations
+        normalized_task['global_styles'] = root_styles
+        logger.info(f"Task {job_id[:6]}: 继承自根任务 {root_job_id[:6]}: "
+                    f"concept='{root_concept}', vars='{root_variations}', styles='{root_styles}'")
+
+        # --- 设置 Action Job 的 action 字段 (保持 action_code 不变) --- #
+        action_code = task.get('action_code') # Use original action_code
+        if action_code and original_job_id: # Ensure both exist
+            short_orig_id = original_job_id[:6]
+            new_action_field_value = f"{action_code}_{short_orig_id}"
+            logger.info(f"Task {job_id[:6]}: 设置 action 字段 (Action Job): '{new_action_field_value}'")
+            normalized_task['action'] = new_action_field_value
+            # Ensure action_code field itself exists and is unchanged
+            normalized_task['action_code'] = action_code
+        elif action_code:
+            logger.warning(f"Task {job_id[:6]}: 有 action_code ('{action_code}') 但缺少 original_job_id，无法生成拼接的 action 字段。将 action 设置为 action_code 本身。")
+            normalized_task['action'] = action_code
+            normalized_task['action_code'] = action_code # Ensure it exists
+        elif original_job_id:
+            logger.warning(f"Task {job_id[:6]}: 有 original_job_id 但缺少 action_code，无法生成拼接的 action 字段。将 action 设置为 'unknown_action'。")
+            normalized_task['action'] = f"unknown_action_{original_job_id[:6]}"
+            normalized_task['action_code'] = None # Explicitly set action_code to None
+        else: # Should not happen in this block, but for safety
+             normalized_task['action'] = 'error_case'
+             normalized_task['action_code'] = None
+
     else:
-        # --- 处理非 Action 任务 (原创任务) ---
+        # --- 处理非 Action 任务 (原创任务 / Recreate) --- #
+        # 保持 concept, variations, global_styles 的处理逻辑
         concept = task.get('concept')
-        # 增加检查：如果 concept 看起来像 'from_...' 占位符，也视为无效
         is_invalid_concept = not concept or concept == "unknown" or (isinstance(concept, str) and concept.startswith("from_"))
 
         if is_invalid_concept:
-            # 如果原创任务的概念无效（空、unknown 或 from_），则设为 "unknown"
-            if concept != "unknown": # Log only if it was empty/None/from_...
+            if concept != "unknown":
                  logger.info(f"Task {job_id[:6]}: 原创任务概念无效 ('{concept}')，设置为 'unknown'")
             normalized_task['concept'] = "unknown"
-            # 当 concept 无效时，也清空 variations 和 styles
             normalized_task['variations'] = ""
             normalized_task['global_styles'] = ""
         else:
-            # 保持原有有效的概念值
             logger.debug(f"Task {job_id[:6]}: 原创任务，保持有效概念 '{concept}'")
-            # 确保 variations 和 global_styles 字段存在且为字符串
             if 'variations' not in normalized_task or normalized_task['variations'] is None:
                 normalized_task['variations'] = ""
             if 'global_styles' not in normalized_task or normalized_task['global_styles'] is None:
                 normalized_task['global_styles'] = ""
+
+        # --- 设置原生任务的 action 字段 --- #
+        logger.debug(f"Task {job_id[:6]}: 设置 action 字段 (原生任务): 'create'")
+        normalized_task['action'] = 'create' # Assume 'create' for all non-action jobs
+        normalized_task['action_code'] = None # Ensure action_code is None for non-action jobs
+
+    # --- 移除旧的 action 字段 (如果它与 action_code 混淆了) --- #
+    # This logic might be redundant if normalize_api_response already handles it,
+    # but double-checking here based on the potential confusion.
+    # If the goal is JUST to set the 'action' field as derived above,
+    # we might not need this removal. Let's comment it out for now.
+    # if 'action' in normalized_task and 'action_code' in normalized_task and normalized_task['action'] == normalized_task['action_code']:
+    #    # If old 'action' was just a copy of 'action_code', remove it before setting the new one?
+    #    # Or maybe normalize_api_response should handle not copying 'action' if 'action_code' exists?
+    #    pass # Revisit if needed
 
     return normalized_task
 

@@ -23,16 +23,17 @@
 
 本工具集提供以下功能：
 
-1. **提示词生成**：基于预设的创意概念生成 Midjourney 提示词
+1. **提示词生成**：基于预设的创意概念生成 Midjourney 提示词，或使用OpenAI优化用户输入
 2. **多样化变体**：每个创意概念有多个变体可供选择
 3. **灵活配置**：可自定义宽高比、质量和 Midjourney 版本
 4. **API 集成**：通过 TTAPI 直接生成图像并下载到本地
 5. **多种操作支持**：支持 Upscale, Variation, Reroll 等后续操作。
 6. **Seed 管理**：支持获取图像 Seed，并基于 Prompt 和 Seed 重新生成。
 7. **异步生成**：支持通过 Webhook 异步接收生成结果
-8. **元数据管理**：自动保存图像元数据，便于后续查询和管理
-9. **日志记录**：详细的日志记录，便于排查问题
-10. **统一命令入口**：通过 `crc` 命令访问所有功能。
+8. **概念持久化**：将AI优化的提示词保存为命名概念，方便重复使用
+9. **元数据管理**：自动保存图像元数据，便于后续查询和管理
+10. **日志记录**：详细的日志记录，便于排查问题
+11. **统一命令入口**：通过 `crc` 命令访问所有功能。
 
 ## 安装与设置
 
@@ -41,6 +42,7 @@
 - Python 3.6+
 - uv 包管理器（推荐）或 pip
 - TTAPI 账户和 API 密钥
+- OpenAI API 密钥（用于提示词优化）
 
 ### 安装步骤
 
@@ -59,14 +61,16 @@ chmod +x setup.sh
 - 在 `$HOME/.local/bin` 目录下创建一个名为 `crc` 的全局命令。
 - 检查 `$HOME/.local/bin` 是否在您的 PATH 环境变量中，如果不在则提示您添加。
 
-3. 设置 TTAPI API 密钥：
+3. 设置 API 密钥：
 
 ```bash
 # 方法一：设置环境变量
-export TTAPI_API_KEY="your_api_key_here"
+export TTAPI_API_KEY="your_ttapi_key_here"
+export OPENAI_API_KEY="your_openai_key_here"
 
 # 方法二：创建 .env 文件 (在项目根目录下)
-echo "TTAPI_API_KEY=your_api_key_here" > .env
+echo "TTAPI_API_KEY=your_ttapi_key_here" > .env
+echo "OPENAI_API_KEY=your_openai_key_here" >> .env
 ```
 
 4. (可选) 确保 Python 脚本有执行权限（通常 `setup.sh` 创建的 `crc` 命令会处理这个）：
@@ -106,28 +110,52 @@ crc variations ca # 注意：这里概念名是 ca 而不是 concept_a
 
 ### 生成提示词
 
-生成基本提示词：
+#### 使用AI优化提示词（新功能）
+
+使用OpenAI API优化提示词：
 
 ```bash
-crc generate -p "A photorealistic electron microscope view of a virus attacking a cell, detailed, cinematic lighting" --aspect landscape
+# 基本用法：提供简单描述，由AI优化为详细提示词
+crc generate --prompt "一个科幻城市景观"
+
+# 附加风格和宽高比等参数
+crc generate --prompt "宇宙中的深海生物" --style vibrant_colors dark_bg --aspect portrait
+
+# 保存到剪贴板
+crc generate --prompt "微观世界的分子舞蹈" --clipboard
+
+# 持久化为新概念：将生成的提示词保存到prompts_config.json
+crc generate --prompt "古代文明的神秘符号" --concept ancient_symbols
+
+# 更新现有概念：用新生成的提示词更新已有概念
+crc generate --prompt "改进版本的免疫细胞网络" --concept ca3
 ```
 
-生成带变体的提示词：
+使用参数自定义生成：
 
 ```bash
-crc generate -p "A photorealistic electron microscope view of a virus attacking a cell, detailed, cinematic lighting" --aspect landscape --var scientific
+# 指定质量和版本
+crc generate --prompt "分子结构与DNA双螺旋" --quality high --version v6
+
+# 使用参考图像
+crc generate --prompt "科学视觉化的病毒结构" --cref https://example.com/reference.jpg
 ```
 
-生成提示词并复制到剪贴板：
+#### 使用现有提示词（传统方式）
+
+基于预设概念生成提示词：
 
 ```bash
-crc generate -p "A photorealistic electron microscope view of a virus attacking a cell, detailed, cinematic lighting" --aspect landscape --var vibrant --clipboard
-```
+crc create -c ca
 
-自定义宽高比、质量和版本：
+# 指定变体
+crc create -c ca -var scientific
 
-```bash
-crc generate -p "A photorealistic electron microscope view of a virus attacking a cell, detailed, cinematic lighting" --aspect landscape --quality high --version v6
+# 添加全局风格
+crc create -c ca -var dramatic --style focus cinematic
+
+# 使用其他参数
+crc create -c ca -var vibrant --aspect portrait --quality high --version v6 --save-prompt
 ```
 
 ### 生成图像
@@ -234,7 +262,27 @@ crc upscale <job_id> 1 --hook-url https://your-webhook.com/callback
 
 ## 配置文件
 
-所有提示词模板和设置都存储在 `prompts_config.json` 文件中。您可以编辑此文件来添加新的创意概念或修改现有的提示词。
+所有提示词模板和设置都存储在 `prompts_config.json` 文件中。您可以：
+
+- 通过手动编辑此文件来添加新的创意概念或修改现有的提示词
+- 使用 `crc generate --prompt "..." --concept new_concept_key` 自动创建新概念
+- 使用 `crc generate --prompt "..." --concept existing_key` 更新现有概念
+
+配置文件中包含以下主要部分：
+
+- **concepts**: 创意概念及其变体
+- **global_styles**: 全局样式设置
+- **aspect_ratios**: 支持的宽高比
+- **quality_settings**: 图像质量设置
+- **style_versions**: Midjourney版本设置
+
+### 依赖项
+
+为使用新版的`generate`命令优化提示词，需要安装以下额外依赖：
+
+```bash
+pip install openai python-dotenv
+```
 
 ## 图像元数据
 
@@ -338,6 +386,20 @@ crc upscale <job_id> 1 --hook-url https://your-webhook.com/callback
 2. 确认 API 配额是否充足
 3. 检查网络连接
 4. 查看 API 响应中的错误信息
+
+### 如何使用OpenAI优化我的提示词？
+
+1. 确保已设置`OPENAI_API_KEY`环境变量或在`.env`文件中添加
+2. 使用`crc generate --prompt "简单描述"`命令，提供您的基本想法
+3. OpenAI将优化您的描述，生成详细、富有视觉描述性的Midjourney提示词
+4. 如需保存为重复使用的概念，添加`--concept my_concept_name`参数
+
+### 为什么我的OpenAI API调用失败？
+
+1. 检查`OPENAI_API_KEY`是否正确设置
+2. 确认API密钥有效且有足够的配额
+3. 检查网络连接
+4. 如果问题持续，可以添加`--debug`参数查看详细错误信息
 
 ---
 

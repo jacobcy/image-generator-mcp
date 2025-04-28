@@ -31,7 +31,11 @@ from .image_metadata import (
     trace_job_history,
     remove_job_metadata
 )
-from .api import poll_for_result, normalize_api_response
+from .log import setup_logging
+# 区分 api.py (包含 normalize_api_response) 和 api_client.py (包含实际 API 调用)
+from .api import normalize_api_response
+from .api_client import poll_for_result
+# from .api import poll_for_result, normalize_api_response # 旧的导入方式
 from .image_handler import download_and_save_image
 
 def restore_metadata_from_remote(logger: logging.Logger, job_list: List[Dict[str, Any]], api_key: Optional[str] = None) -> Optional[int]:
@@ -81,11 +85,29 @@ def restore_metadata_from_remote(logger: logging.Logger, job_list: List[Dict[str
             if api_key and normalized_data.get("status") == "completed":
                 try:
                     logger.info(f"从API获取任务{job_id}的详细信息...")
-                    api_result = poll_for_result(logger, job_id, api_key)
-                    if api_result:
-                        # 更新标准化数据
-                        api_normalized = normalize_api_response(logger, api_result)
-                        normalized_data.update(api_normalized)
+                    poll_response = poll_for_result(logger, job_id, api_key)
+
+                    if poll_response:
+                        final_status, api_data = poll_response
+                        
+                        # Only update if poll succeeded and status is still relevant
+                        if final_status == "SUCCESS" and isinstance(api_data, dict):
+                            # 更新标准化数据 - Use api_data
+                            api_normalized = normalize_api_response(logger, api_data)
+                            if api_normalized:
+                                normalized_data.update(api_normalized)
+                                logger.debug(f"任务 {job_id} 的元数据已使用轮询结果更新。")
+                            else:
+                                logger.warning(f"无法标准化来自 poll_for_result 的任务 {job_id} 数据。")
+                        elif final_status == "FAILED":
+                            logger.warning(f"轮询任务 {job_id} 时发现其状态为 FAILED，将跳过更新，后续 sync 可能移除。")
+                            # Optionally update local status to FAILED here?
+                            # update_job_metadata(logger, job_id, {'status': 'FAILED'}) # Consider this
+                        else:
+                             logger.warning(f"轮询任务 {job_id} 未成功或状态非 SUCCESS (状态: {final_status})。")
+                    else:
+                        logger.warning(f"轮询任务 {job_id} 失败或超时，无法获取详细信息。")
+
                 except Exception as e:
                     logger.warning(f"获取任务{job_id}的详情时出错: {str(e)}")
             

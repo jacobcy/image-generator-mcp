@@ -94,44 +94,6 @@ def ensure_directories(logger, dirs=None, base_dir=None):
             logger.debug(f"目录已存在: {directory}")
     return all_created # Return status
 
-# --- DEPRECATED METADATA FUNCTIONS BELOW --- #
-# These are kept temporarily for reference or specific tests if needed,
-# but should not be used in new code. Import from metadata_manager instead.
-
-def _load_metadata_file_deprecated(logger, target_filename):
-    # ... implementation removed ...
-    logger.warning(f"DEPRECATED: _load_metadata_file_deprecated called from file_handler. Use image_metadata._load_metadata_file.")
-    pass
-
-def _save_metadata_file_deprecated(logger, target_filename, metadata_data):
-    # ... implementation removed ...
-    logger.warning(f"DEPRECATED: _save_metadata_file_deprecated called from file_handler. Use image_metadata._save_metadata_file.")
-    pass
-
-def save_image_metadata_deprecated(logger, *args, **kwargs):
-    logger.warning("DEPRECATED: save_image_metadata_deprecated called from file_handler. Import from metadata_manager.")
-    pass
-
-def save_action_metadata_deprecated(logger, *args, **kwargs):
-    logger.warning("DEPRECATED: save_action_metadata_deprecated called from file_handler. Use save_image_metadata from metadata_manager with action_code/original_job_id.")
-    pass
-
-def restore_metadata_from_job_list_deprecated(logger, *args, **kwargs):
-    logger.warning("DEPRECATED: restore_metadata_from_job_list_deprecated called from file_handler. Import from metadata_manager.")
-    pass
-
-def find_initial_job_info_deprecated(logger, *args, **kwargs):
-    logger.warning("DEPRECATED: find_initial_job_info_deprecated called from file_handler. Import from metadata_manager.")
-    return None
-
-def update_job_metadata_deprecated(logger, *args, **kwargs):
-    logger.warning("DEPRECATED: update_job_metadata_deprecated called from file_handler. Import from metadata_manager.")
-    pass
-
-def upsert_job_metadata_deprecated(logger, *args, **kwargs):
-    logger.warning("DEPRECATED: upsert_job_metadata_deprecated called from file_handler. Import from metadata_manager.")
-    pass
-
 # --- 文件名生成辅助函数 --- #
 
 def _generate_expected_filename(logger: logging.Logger, task_data: Dict[str, Any], all_tasks_index: Dict[str, Dict[str, Any]]) -> str:

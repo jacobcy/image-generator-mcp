@@ -1,11 +1,45 @@
-__pycache__
-*.pyc
-*.pyo
-*.pyd
-*.pyw
-*.pyz
+# Python Bytecode and Cache
+__pycache__/
+*.py[cod]
+*$py.class
 
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+develop-eggs/
+*.egg
+
+# Virtual Environments
+.venv/
+venv/
+env/
+ENV/
+
+# Secrets
+.env
+*.env
+.env.*
+
+# Logs
+logs/
 *.log
+
+# Runtime data / Generated files
+metadata/
+
+# OS / Editor specific
+.DS_Store
+.idea/
+.vscode/
+
+# Testing / Linting Cache
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
 *.txt
 *.yaml
 *.yml
@@ -19,14 +53,3 @@ __pycache__
 *.bmp
 *.tiff
 *.ico
-
-.pytest_cache
-.mypy_cache
-.ruff_cache
-.DS_Store
-.idea
-.vscode
-
-.venv
-.env
-build/

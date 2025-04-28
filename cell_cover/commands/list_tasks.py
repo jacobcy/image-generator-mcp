@@ -18,19 +18,33 @@ from ..utils.metadata_manager import (
 # from ..utils.normalize_metadata import normalize_task_metadata
 # 需要导入底层的保存函数
 from ..utils.image_metadata import _save_metadata_file
-from ..utils.api import poll_for_result, normalize_api_response, fetch_job_list_from_ttapi
+from ..utils.api import normalize_api_response
+from ..utils.api_client import fetch_job_list_from_ttapi # 直接从 api_client 导入
 from ..utils.filesystem_utils import write_last_succeed_job_id, METADATA_FILENAME
 from ..utils.image_handler import download_and_save_image
 
 logger = logging.getLogger(__name__)
 
-# # 颜色常量 (REMOVED)
-# C_GREEN = "\033[92m"
-# C_RED = "\033[91m"
-# C_YELLOW = "\033[93m"
-# C_BLUE = "\033[94m"
-# C_CYAN = "\033[96m"
-# C_RESET = "\033[0m"
+# 颜色常量
+C_GREEN = "\033[92m"
+C_RED = "\033[91m"
+C_YELLOW = "\033[93m"
+C_BLUE = "\033[94m"
+C_CYAN = "\033[96m"
+C_GRAY = "\033[90m" # Added Gray
+C_RESET = "\033[0m"
+
+def get_status_color(status):
+    """根据状态返回颜色代码。"""
+    status_lower = str(status).lower()
+    if status_lower == 'completed':
+        return C_GREEN
+    elif 'fail' in status_lower or 'error' in status_lower or status_lower in ['file_missing', 'rename_failed']:
+        return C_RED
+    elif status_lower in ['pending', 'submitted', 'submitted_webhook', 'pending_queue', 'on_queue', 'processing', 'polling']:
+        return C_YELLOW
+    else:
+        return C_RESET # Default color
 
 def handle_list_tasks(args, logger):
     """处理 'list' 命令，加载、过滤、排序、同步、规范化并打印任务列表。"""
@@ -133,15 +147,10 @@ def handle_list_tasks(args, logger):
          return 0
 
     # --- 处理列表显示逻辑 (Filtering, Sorting, Limiting, Printing) --- #
-    # (保持这部分逻辑不变，使用 all_tasks 数据)
-    # 将 args.num 转换为 args.limit
     args.limit = getattr(args, 'num', 10)
-    # 将 args.sort 转换为 args.sort_by
     args.sort_by = 'timestamp' if getattr(args, 'sort', 'time') == 'time' else getattr(args, 'sort', 'time')
-    # 将 args.status 转换为字符串
     if hasattr(args, 'status') and args.status == 'all':
         args.status = None
-    # 设置 args.asc
     args.asc = False
 
     filtered_tasks = all_tasks
@@ -149,68 +158,52 @@ def handle_list_tasks(args, logger):
     # 1. Filtering
     if args.status:
         logger.debug(f"按状态过滤: {args.status}")
-        # Filter based on the status field, case-insensitive
         filtered_tasks = [t for t in filtered_tasks
                           if str(t.get('status', '')).lower() == args.status.lower() or
-                             (args.status.lower() == 'success' and str(t.get('status', '')).lower() == 'completed') # Treat completed as success for filtering
-                         ]
-        if verbose_mode:
-            print(f"DEBUG: 按状态过滤后剩余 {len(filtered_tasks)} 条记录")
-
+                             (args.status.lower() == 'success' and str(t.get('status', '')).lower() == 'completed')]
+        if verbose_mode: print(f"DEBUG: 按状态过滤后剩余 {len(filtered_tasks)} 条记录")
     if args.concept:
         logger.debug(f"按概念过滤: {args.concept}")
         filtered_tasks = [t for t in filtered_tasks if str(t.get('concept', '')).lower() == args.concept.lower()]
-        if verbose_mode:
-            print(f"DEBUG: 按概念过滤后剩余 {len(filtered_tasks)} 条记录")
-
+        if verbose_mode: print(f"DEBUG: 按概念过滤后剩余 {len(filtered_tasks)} 条记录")
     if not filtered_tasks and (args.status or args.concept):
         print("根据当前过滤条件，未找到匹配的任务。")
-        return 0 # No results found is not an error
+        return 0
 
     # 2. Sorting
     sort_key = args.sort_by
-    reverse_sort = not args.asc # Default is descending
+    reverse_sort = not args.asc
     logger.debug(f"按 '{sort_key}' 排序，升序: {args.asc}")
-    if verbose_mode:
-        print(f"DEBUG: 排序键: {sort_key}, 升序: {args.asc}")
-
+    if verbose_mode: print(f"DEBUG: 排序键: {sort_key}, 升序: {args.asc}")
     def get_sort_value(task):
         value = task.get(sort_key)
         if sort_key == 'timestamp':
-            # Use 'created_at' or a potential 'updated_at' field
             ts_str = task.get('created_at') or task.get('metadata_updated_at') or task.get('metadata_added_at') or task.get('restored_at')
-            if ts_str:
-                try:
-                    # Attempt to parse ISO format
-                    return datetime.fromisoformat(str(ts_str))
-                except ValueError:
-                    # Fallback for other formats if needed, or return a default
+            if ts_str: 
+                try: 
+                    return datetime.fromisoformat(str(ts_str)); 
+                except ValueError: 
                     return datetime.min
-            return datetime.min # Default for missing timestamp
-        # For other keys like status or concept, use lowercase for case-insensitive sort
+            return datetime.min
         return str(value).lower() if value is not None else ''
-
     try:
         # 打印前几个任务的排序值
         if filtered_tasks and verbose_mode:
-            print("DEBUG: 前几个任务的排序值:")
-            for i, task in enumerate(filtered_tasks[:3]):
-                sort_val = get_sort_value(task)
-                print(f"  - 任务 {i+1}: {sort_val} (ID: {task.get('job_id', 'N/A')[:6]})")
+             print("DEBUG: 前几个任务的排序值:")
+             for i, t in enumerate(filtered_tasks[:3]):
+                 task_id_short = t.get('job_id', 'N/A')[:6]
+                 sort_val = get_sort_value(t)
+                 debug_msg = f"  - 任务 {i+1}: {sort_val} (ID: {task_id_short})"
+                 print(debug_msg) # Print the formatted string
 
         sorted_tasks = sorted(filtered_tasks, key=get_sort_value, reverse=reverse_sort)
-        if verbose_mode:
-            print(f"DEBUG: 排序后的任务数量: {len(sorted_tasks)}")
-    except Exception as e:
-        logger.error(f"排序任务时出错: {e}", exc_info=True)
-        print(f"错误：排序任务时发生错误: {e}")
-        return 1
+        if verbose_mode: print(f"DEBUG: 排序后的任务数量: {len(sorted_tasks)}")
+    except Exception as e: logger.error(f"排序任务时出错: {e}", exc_info=True); print(f"错误：排序任务时发生错误: {e}"); return 1
 
     # 3. Limiting
     limited_tasks = sorted_tasks[:args.limit]
     logger.debug(f"限制显示最近的 {args.limit} 条记录。")
-    if verbose_mode:
-        print(f"DEBUG: 限制后的任务数量: {len(limited_tasks)}")
+    if verbose_mode: print(f"DEBUG: 限制后的任务数量: {len(limited_tasks)}")
 
     # 4. Formatting and Printing with Colors
     if not limited_tasks:
@@ -218,35 +211,24 @@ def handle_list_tasks(args, logger):
         return 0
 
     print("\n--- 任务列表 ---")
-    if verbose_mode:
-        print(f"DEBUG: 找到 {len(limited_tasks)} 条任务记录")
+    if verbose_mode: print(f"DEBUG: 找到 {len(limited_tasks)} 条任务记录")
 
-    # 创建任务索引供trace_job_history使用
-    all_tasks_index = {}
-    for t in all_tasks:
-        job_id = t.get('job_id')
-        if job_id:
-            all_tasks_index[job_id] = t
-
-    # Define columns and flexible widths - 简化显示，移除Filename列
+    # Define columns and flexible widths
     cols = ["时间", "ID", "状态", "命令", "概念"]
-    # 调整列宽，特别是简化后的列
-    col_widths = {"时间": 12, "ID": 8, "状态": 12, "命令": 12, "概念": 28}
+    col_widths = {"时间": 12, "ID": 7, "状态": 13, "命令": 22, "概念": 12} # Adjusted widths
 
     if args.verbose:
-        cols.extend(["Seed", "URL"])
+        cols.extend(["Seed", "文件名"])
         col_widths["Seed"] = 12
-        col_widths["URL"] = 28
+        col_widths["文件名"] = 30 # Replaced URL with Filename for verbose
 
     # Print header with color
     header_parts = []
     for col in cols:
-        # header_parts.append(f"{C_CYAN}{col:<{col_widths[col]}}{C_RESET}")
-        header_parts.append(f"{col:<{col_widths[col]}}") # No color
+        header_parts.append(f"{C_CYAN}{col:<{col_widths[col]}}{C_RESET}")
     header = " | ".join(header_parts)
     print(header)
-    # print(f"{C_GRAY}{'-' * len(header)}{C_RESET}") # Use gray for separator
-    print(f"{'*' * len(header)}") # No color
+    print(f"{C_GRAY}{'-' * len(header)}{C_RESET}") # Use gray for separator
 
     # Print rows
     for task in limited_tasks:
@@ -254,87 +236,47 @@ def handle_list_tasks(args, logger):
 
         # 时间戳 (月/日 时:分)
         ts_str = task.get('created_at') or task.get('metadata_updated_at') or task.get('metadata_added_at') or task.get('restored_at')
-        try:
-            dt_obj = datetime.fromisoformat(str(ts_str)) if ts_str else None
-            # 只显示月/日 时:分
-            ts_formatted = dt_obj.strftime("%m/%d %H:%M") if dt_obj else 'N/A'
-        except ValueError:
-             ts_formatted = 'Invalid Date'
-        # row_parts.append(f"{C_BLUE}{ts_formatted:<{col_widths['时间']}}{C_RESET}")
-        row_parts.append(f"{ts_formatted:<{col_widths['时间']}}") # No color
+        try: dt_obj = datetime.fromisoformat(str(ts_str)) if ts_str else None; ts_formatted = dt_obj.strftime("%m/%d %H:%M") if dt_obj else 'N/A'
+        except ValueError: ts_formatted = 'Invalid Date'
+        row_parts.append(f"{C_BLUE}{ts_formatted:<{col_widths['时间']}}{C_RESET}")
 
         # Job ID (只显示前6位)
         job_id_str = (task.get('job_id') or 'N/A')[:6]
-        # row_parts.append(f"{C_MAGENTA}{job_id_str:<{col_widths['ID']}}{C_RESET}")
-        row_parts.append(f"{job_id_str:<{col_widths['ID']}}") # No color
+        row_parts.append(f"{C_CYAN}{job_id_str:<{col_widths['ID']}}{C_RESET}")
 
         # Status (Colored)
-        status_str = (task.get('status') or 'N/A')[:col_widths["状态"]]
-        row_parts.append(f"{status_str:<{col_widths['状态']}}")
+        status_raw = task.get('status') or 'N/A'
+        status_color = get_status_color(status_raw)
+        status_str = status_raw[:col_widths["状态"]]
+        row_parts.append(f"{status_color}{status_str:<{col_widths['状态']}}{C_RESET}")
 
-        # 使用规范化后的数据
-        type_str = task.get('action', 'unknown')
-        concept = task.get('concept')
-        variations = task.get('variations', '')
-        global_styles = task.get('global_styles', '')
-
-        # 构建概念字符串
-        concept_parts = []
-        if concept:
-            concept_parts.append(concept)
-        if variations and variations != "":
-            concept_parts.append(variations)
-        if global_styles and global_styles != "":
-            concept_parts.append(global_styles)
-
-        # 如果概念列表为空但是有原始任务ID，显示原始任务ID
-        original_job_id = task.get('original_job_id')
-        if not concept_parts and original_job_id:
-            concept_str = f"from:{original_job_id[:6]}"
-        else:
-            concept_str = "-".join(concept_parts) if concept_parts else "N/A"
-
-        # 命令列显示类型
-        command_str = type_str
-        # 截断过长的命令字符串
+        # 命令 (使用 action 字段)
+        command_str = task.get('action', 'unknown') # Use the 'action' field
         max_command_len = col_widths['命令']
-        if len(command_str) > max_command_len:
-            command_display = command_str[:max_command_len-3] + "..."
-        else:
-            command_display = command_str
-        row_parts.append(f"{command_display:<{col_widths['命令']}}")
+        command_display = (command_str[:max_command_len-3] + "...") if len(command_str) > max_command_len else command_str
+        row_parts.append(f"{command_display:<{col_widths['命令']}}") # Default color
 
-        # 概念列显示 concept-variation-style
-        # 截断过长的概念字符串
+        # 概念 (直接使用 concept 字段, C_YELLOW)
+        concept_str = task.get('concept', 'N/A') # Get concept directly
         max_concept_len = col_widths['概念']
-        if len(concept_str) > max_concept_len:
-            concept_display = concept_str[:max_concept_len-3] + "..."
-        else:
-            concept_display = concept_str
-        row_parts.append(f"{concept_display:<{col_widths['概念']}}")
+        concept_display = (concept_str[:max_concept_len-3] + "...") if len(concept_str) > max_concept_len else concept_str
+        row_parts.append(f"{C_YELLOW}{concept_display:<{col_widths['概念']}}{C_RESET}")
 
         if args.verbose:
             # Seed (Gray)
             seed_str = str(task.get('seed') or 'N/A')[:col_widths["Seed"]]
-            # row_parts.append(f"{C_GRAY}{seed_str:<{col_widths['Seed']}}{C_RESET}")
-            row_parts.append(f"{seed_str:<{col_widths['Seed']}}") # No color
+            row_parts.append(f"{C_GRAY}{seed_str:<{col_widths['Seed']}}{C_RESET}")
 
-            # URL (Gray, Truncated)
-            url_str = (task.get('url') or 'N/A') # Already normalized
-            max_url_len = col_widths["URL"]
-            if len(url_str) > max_url_len:
-                 url_display = url_str[:max_url_len-3] + "..."
-            else:
-                 url_display = url_str
-            # row_parts.append(f"{C_GRAY}{url_display:<{col_widths['URL']}}{C_RESET}")
-            row_parts.append(f"{url_display:<{col_widths['URL']}}") # No color
+            # Filename (Gray, Truncated)
+            filename_str = (task.get('filename') or 'N/A')
+            max_filename_len = col_widths["文件名"]
+            filename_display = (filename_str[:max_filename_len-3] + "...") if len(filename_str) > max_filename_len else filename_str
+            row_parts.append(f"{C_GRAY}{filename_display:<{col_widths['文件名']}}{C_RESET}")
 
         print(" | ".join(row_parts))
 
-    # print(f"{C_GRAY}{'-' * len(header)}{C_RESET}")
-    print(f"{'*' * len(header)}") # No color
-    # print(f"显示 {C_BOLD}{len(limited_tasks)}{C_RESET} 条记录 (总匹配: {len(filtered_tasks)}, 总记录: {len(all_tasks)})") # No bold
-    print(f"显示 {len(limited_tasks)} 条记录 (总匹配: {len(filtered_tasks)}, 总记录: {len(all_tasks)})")
+    print(f"{C_GRAY}{'-' * len(header)}{C_RESET}")
+    print(f"显示 {len(limited_tasks)} 条记录 (总匹配: {len(filtered_tasks)}, 总记录: {initial_load_count})")
     print()
 
     return 0
@@ -344,26 +286,12 @@ def add_subparser(subparsers):
     parser = subparsers.add_parser(
         "list", aliases=["ls"], help="List tasks from local metadata"
     )
-    parser.add_argument(
-        "-n", "--num", type=int, default=10, help="Number of tasks to display"
-    )
-    parser.add_argument(
-        "-s", "--sort", type=str, default="time", choices=["time", "status", "concept"], help="Sort order"
-    )
-    parser.add_argument(
-        "--status", type=str, default=None, help="Filter by status (e.g., completed, pending)"
-    )
-    parser.add_argument(
-        "-c", "--concept", type=str, default=None, help="Filter by concept"
-    )
-    parser.add_argument(
-        '--sync', action='store_true', help='自动同步本地数据库中状态不确定的任务'
-    )
-    parser.add_argument(
-        '--normalize', action='store_true', help='规范化元数据文件，移除冗余字段并统一格式'
-    )
-    parser.add_argument(
-        '-v', '--verbose', action='store_true', help='显示详细的调试日志'
-    )
+    parser.add_argument("-n", "--num", type=int, default=10, help="Number of tasks to display")
+    parser.add_argument("-s", "--sort", type=str, default="time", choices=["time", "status", "concept"], help="Sort order")
+    parser.add_argument("--status", type=str, default=None, help="Filter by status (e.g., completed, pending, all)")
+    parser.add_argument("-c", "--concept", type=str, default=None, help="Filter by concept")
+    parser.add_argument('--sync', action='store_true', help='同步本地数据库中状态不确定的任务')
+    parser.add_argument('--normalize', action='store_true', help='规范化元数据文件 (独立操作)')
+    parser.add_argument('-v', '--verbose', action='store_true', help='显示详细信息 (Seed, 文件名)')
     parser.set_defaults(handle=handle_list_tasks)
     return parser

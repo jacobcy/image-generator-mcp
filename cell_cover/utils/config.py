@@ -107,12 +107,12 @@ def get_api_key(logger, script_dir_for_env_fallback=None, service="ttapi"):
                     line = line.strip()
                     if line and not line.startswith('#') and '=' in line:
                         key, value = line.split('=', 1)
-                        if key == "TTAPI_API_KEY":
+                        if key == env_var_name:
                             api_key = value
-                            logger.info(f"从 {source} 获取了 TTAPI_API_KEY。")
+                            logger.info(f"从 {source} 获取了 {env_var_name}。")
                             break # Found it
             if not api_key:
-                 logger.warning(f"在 {source} 中未找到 TTAPI_API_KEY=... 行。")
+                 logger.warning(f"在 {source} 中未找到 {env_var_name}=... 行。")
         else:
             logger.warning(f"未找到 {source}。")
 
@@ -121,10 +121,10 @@ def get_api_key(logger, script_dir_for_env_fallback=None, service="ttapi"):
         api_key = None # Ensure api_key is None on error
 
     if not api_key:
-        error_msg = "错误：未设置 TTAPI_API_KEY 环境变量，且在项目根目录 .env 文件中也未找到。"
+        error_msg = f"错误：未设置 {env_var_name} 环境变量，且在项目根目录 .env 文件中也未找到。"
         logger.critical(error_msg)
         print(error_msg)
-        print("请设置环境变量 TTAPI_API_KEY=<your_api_key> 或在项目根目录 .env 文件中添加该变量。")
+        print(f"请设置环境变量 {env_var_name}=<your_api_key> 或在项目根目录 .env 文件中添加该变量 ({service_name} 服务)。")
         # Returning None, let the caller handle exit
         return None
 

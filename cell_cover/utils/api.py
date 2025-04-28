@@ -2,153 +2,18 @@
 # -*- coding: utf-8 -*-
 
 """
-TTAPI API Interface
-------------------
-High-level interface for interacting with TTAPI Midjourney endpoints.
-This module provides a compatibility layer and additional functionality
-on top of the low-level api_client module.
+API Response Normalization
+--------------------------
+Utility function for normalizing responses from the TTAPI API.
 """
 
 import logging
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 
-from . import api_client
-
-# Re-export constants for backward compatibility
-TTAPI_BASE_URL = api_client.TTAPI_BASE_URL
-POLL_INTERVAL_SECONDS = api_client.POLL_INTERVAL_SECONDS
-FETCH_TIMEOUT_SECONDS = api_client.FETCH_TIMEOUT_SECONDS
-MAX_POLL_ATTEMPTS = api_client.MAX_POLL_ATTEMPTS
-
-# Re-export functions with additional functionality or compatibility layer
-def call_imagine_api(
-    logger: logging.Logger,
-    prompt_data: dict,
-    api_key: str,
-    hook_url: Optional[str] = None,
-    notify_id: Optional[str] = None,
-    cref_url: Optional[str] = None
-) -> Optional[str]:
-    """调用 TTAPI 的 /imagine 接口提交任务 (兼容层)"""
-    return api_client.call_imagine_api(
-        logger=logger,
-        prompt_data=prompt_data,
-        api_key=api_key,
-        hook_url=hook_url,
-        notify_id=notify_id,
-        cref_url=cref_url
-    )
-
-def poll_for_result(
-    logger: logging.Logger,
-    job_id: str,
-    api_key: str,
-    poll_interval: int = POLL_INTERVAL_SECONDS,
-    timeout: int = FETCH_TIMEOUT_SECONDS,
-    max_retries_per_poll: int = 1
-) -> Optional[Dict[str, Any]]:
-    """轮询 /fetch 接口获取任务结果 (兼容层)"""
-    return api_client.poll_for_result(
-        logger=logger,
-        job_id=job_id,
-        api_key=api_key,
-        poll_interval=poll_interval,
-        timeout=timeout,
-        max_retries_per_poll=max_retries_per_poll
-    )
-
-def fetch_job_list_from_ttapi(
-    api_key: str,
-    logger: logging.Logger,
-    page: int = 1,
-    limit: int = 10
-) -> Optional[List[Dict[str, Any]]]:
-    """从 TTAPI 获取任务列表 (兼容层)"""
-    return api_client.fetch_job_list_from_ttapi(
-        api_key=api_key,
-        logger=logger,
-        page=page,
-        limit=limit
-    )
-
-def call_action_api(
-    logger: logging.Logger,
-    api_key: str,
-    job_id: str,
-    action_code: str,
-    hook_url: Optional[str] = None,
-    mode: Optional[str] = None
-) -> Optional[str]:
-    """调用 TTAPI 的 /action 接口执行操作 (兼容层)
-
-    Args:
-        logger: 日志记录器。
-        api_key: TTAPI 密钥。
-        job_id: 要执行操作的任务 ID。
-        action_code: 要执行的具体操作名称 (例如 'upsample1', 'variation2')。
-        hook_url: Webhook 回调地址 (可选)。
-        mode: Optional[str]: The mode for the action
-
-    Returns:
-        Optional[str]: 如果提交成功，返回 Job ID (通常与输入 job_id 相同)；否则返回 None。
-    """
-    return api_client.call_action_api(
-        logger=logger,
-        api_key=api_key,
-        original_job_id=job_id,
-        action=action_code,
-        hook_url=hook_url,
-        mode=mode
-    )
-
-def fetch_seed_from_ttapi(
-    logger: logging.Logger,
-    api_key: str,
-    job_id: str
-) -> Optional[int]:
-    """从 TTAPI 获取任务的 seed 值 (兼容层)"""
-    return api_client.fetch_seed_from_ttapi(
-        logger=logger,
-        api_key=api_key,
-        job_id=job_id
-    )
-
-def check_prompt(
-    logger: logging.Logger,
-    prompt: str,
-    api_key: str
-) -> bool:
-    """检查提示词是否违规 (兼容层)"""
-    return api_client.check_prompt(
-        logger=logger,
-        prompt=prompt,
-        api_key=api_key
-    )
-
-def call_blend_api(
-    logger: logging.Logger,
-    api_key: str,
-    img_base64_array: List[str],
-    dimensions: Optional[str] = None,
-    mode: Optional[str] = None,
-    hook_url: Optional[str] = None,
-    get_u_images: Optional[bool] = None
-) -> Optional[str]:
-    """调用 TTAPI 的 /blend 接口提交任务 (兼容层)"""
-    return api_client.call_blend_api(
-        logger=logger,
-        api_key=api_key,
-        img_base64_array=img_base64_array,
-        dimensions=dimensions,
-        mode=mode,
-        hook_url=hook_url,
-        get_u_images=get_u_images
-    )
-
-def call_describe_api(*args, **kwargs):
-    """调用 /describe API (兼容层)"""
-    return api_client.call_describe_api(*args, **kwargs)
+# Note: Removed direct dependency/import of .api_client here as it's no longer needed
+# for re-exporting. If normalization logic needs constants from api_client,
+# they should be imported directly or passed as arguments.
 
 def normalize_api_response(logger, api_response):
     """
@@ -217,6 +82,25 @@ def normalize_api_response(logger, api_response):
         # 保留 FAILED 状态
         elif isinstance(normalized["status"], str) and normalized["status"].upper() == "FAILED":
             normalized["status"] = "FAILED"
+
+    # --- 设置 action 字段 --- #
+    action_code = normalized.get('action_code')
+    original_job_id = normalized.get('original_job_id')
+
+    if original_job_id and action_code:
+        # Action Job: action = {action_code}_{short_id}
+        short_orig_id = original_job_id[:6]
+        normalized['action'] = f"{action_code}_{short_orig_id}"
+        # action_code 保持不变 (从必要字段复制而来)
+    elif original_job_id and not action_code:
+        # 有 original_id 但无 action_code (异常情况?)
+        short_orig_id = original_job_id[:6]
+        normalized['action'] = f"unknown_action_{short_orig_id}"
+        normalized['action_code'] = None # 明确 action_code 为 None
+    else:
+        # 原生任务 (无 original_job_id): action = 'create'
+        normalized['action'] = 'create'
+        normalized['action_code'] = None # 明确 action_code 为 None
 
     # 保留原始更新时间戳，或添加新的
     if "metadata_updated_at" not in normalized:

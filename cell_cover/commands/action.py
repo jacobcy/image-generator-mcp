@@ -8,8 +8,9 @@ from typing import Optional
 from ..utils.metadata_manager import find_initial_job_info, save_image_metadata
 # download_and_save_image now handles saving metadata via metadata_manager
 from ..utils.image_handler import download_and_save_image
-from ..utils.api import poll_for_result, call_action_api, normalize_api_response
-from ..utils.filesystem_utils import write_last_job_id, write_last_succeed_job_id
+from ..utils.api import normalize_api_response
+from ..utils.api_client import poll_for_result, call_action_api
+from ..utils.filesystem_utils import write_last_job_id, write_last_succeed_job_id, read_last_job_id, read_last_succeed_job_id
 from ..utils.image_metadata import load_all_metadata, _build_metadata_index
 from ..utils.metadata_manager import _generate_expected_filename
 
@@ -26,9 +27,20 @@ def is_likely_job_id(identifier):
             return False
     return False
 
-def handle_action(action_code: str, job_id_or_identifier: str, hook_url: Optional[str], wait: bool, mode: str, logger: logging.Logger, api_key: str) -> int:
+from typing import Optional
+def handle_action(
+    action_code: str,
+    identifier: Optional[str] = None,
+    last_job: bool = False,
+    last_succeed: bool = False,
+    hook_url: Optional[str] = None,
+    wait: bool = False,
+    mode: str = "relax",
+    api_key: Optional[str] = None,
+) -> int:
     """处理 'action' 命令，对现有任务执行操作。"""
-    logger.info(f"开始处理 'action' 命令: action='{action_code}', identifier='{job_id_or_identifier}', wait={wait}, mode={mode}")
+    global logger
+    logger.info(f"开始处理 'action' 命令: action='{action_code}', identifier={identifier}, last_job={last_job}, last_succeed={last_succeed}, wait={wait}, mode={mode}")
 
     # 导入允许的 action_code 列表
     from ..cli import ACTION_CHOICES, ACTION_DESCRIPTIONS
@@ -48,26 +60,50 @@ def handle_action(action_code: str, job_id_or_identifier: str, hook_url: Optiona
         print("使用 'crc action --list' 查看所有可用的操作代码。")
         return 1
 
+    # --- Determine the raw identifier --- #
+    raw_identifier = None
+    source_description = ""
+    if identifier:
+        raw_identifier = identifier
+        source_description = "提供的标识符"
+        logger.info(f"使用 {source_description}: {raw_identifier}")
+    elif last_succeed:
+        source_description = "上一个成功任务 ID"
+        logger.info(f"使用 {source_description}，尝试读取 last_succeed.json...")
+        raw_identifier = read_last_succeed_job_id(logger)
+        if not raw_identifier:
+            logger.error(f"错误：无法读取 {source_description} (last_succeed.json)。")
+            print(f"错误：找不到上次成功的任务 ID。")
+            return 1
+        logger.info(f"获取到 {source_description}: {raw_identifier}")
+    else: # Default or last_job
+        source_description = "上一个提交任务 ID"
+        logger.info(f"未提供标识符或 --last-succeed，使用 {source_description}，尝试读取 last_job.json...")
+        raw_identifier = read_last_job_id(logger)
+        if not raw_identifier:
+            logger.error(f"错误：无法读取 {source_description} (last_job.json)。")
+            print(f"错误：找不到上次提交的任务 ID。请提供标识符或使用 --last-succeed。")
+            return 1
+        logger.info(f"获取到 {source_description}: {raw_identifier}")
+
+    # --- Resolve Job ID from the raw identifier --- #
     original_job_id = None
     original_job_info = None # Store original info for later use if waiting
 
-    # --- Resolve Job ID --- #
-    if is_likely_job_id(job_id_or_identifier):
-        logger.info(f"标识符 '{job_id_or_identifier}' 看起来像 Job ID，将直接使用。")
-        original_job_id = job_id_or_identifier
-        # ONLY try to get original info if wait=True, as it's needed for metadata/download later
+    if is_likely_job_id(raw_identifier): # Use the resolved raw_identifier
+        logger.info(f"来自 '{source_description}' 的标识符 '{raw_identifier}' 看起来像 Job ID，将直接使用。")
+        original_job_id = raw_identifier
         if wait:
             logger.info("--wait=True，尝试查找原始任务信息以便后续记录元数据...")
-        original_job_info = find_initial_job_info(logger, original_job_id)
-        if not original_job_info:
-            logger.warning(f"(Wait Mode) 无法在本地找到原始 Job ID '{original_job_id}' 的元数据，后续保存的元数据信息可能不完整。")
+            original_job_info = find_initial_job_info(logger, original_job_id)
+            if not original_job_info:
+                logger.warning(f"(Wait Mode) 无法在本地找到原始 Job ID '{original_job_id}' 的元数据，后续保存的元数据信息可能不完整。")
     else:
-        # If identifier is not a Job ID, we *always* need to find the info to get the real Job ID
-        logger.info(f"标识符 '{job_id_or_identifier}' 不像 Job ID，将尝试在元数据中查找以获取 Job ID...")
-        original_job_info = find_initial_job_info(logger, job_id_or_identifier)
+        logger.info(f"来自 '{source_description}' 的标识符 '{raw_identifier}' 不像 Job ID，将尝试在元数据中查找以获取 Job ID...")
+        original_job_info = find_initial_job_info(logger, raw_identifier)
         if not original_job_info or not original_job_info.get('job_id'):
-            logger.error(f"无法根据标识符 '{job_id_or_identifier}' 找到唯一的有效任务或其 Job ID。")
-            print(f"错误：无法找到标识符 '{job_id_or_identifier}' 对应的任务。请使用 'list-tasks' 查看或提供有效的 Job ID。")
+            logger.error(f"无法根据来自 '{source_description}' 的标识符 '{raw_identifier}' 找到唯一的有效任务或其 Job ID。")
+            print(f"错误：无法找到标识符 '{raw_identifier}' 对应的任务。请使用 'list-tasks' 查看或提供有效的 Job ID。")
             return 1
         original_job_id = original_job_info.get('job_id')
         logger.info(f"通过元数据查找，解析得到的原始任务 Job ID: {original_job_id}")
@@ -100,77 +136,114 @@ def handle_action(action_code: str, job_id_or_identifier: str, hook_url: Optiona
         if wait and not hook_url:
             logger.info(f"--wait 标志已设置且无 webhook，开始等待并轮询新任务 {new_job_id} 的结果...")
             print(f"等待并轮询任务 {new_job_id} 的结果...")
-            final_result = poll_for_result(logger, new_job_id, api_key)
+            poll_response = poll_for_result(logger, new_job_id, api_key) # Renamed variable
 
-            image_url_key = 'image_url' if 'image_url' in (final_result or {}) else 'cdnImage'
-            if final_result and final_result.get(image_url_key):
-                image_url = final_result.get(image_url_key)
-                logger.info(f"任务 {new_job_id} 完成，图像 URL: {image_url}")
+            if poll_response:
+                final_status, api_data = poll_response # Unpack the tuple
 
-                # 标准化API结果，以便保存
-                normalized_result = normalize_api_response(logger, final_result)
-                normalized_result['job_id'] = new_job_id # Ensure job_id is in the dict
-                normalized_result['original_job_id'] = original_job_id # Ensure original job ID is recorded
-                normalized_result['action_code'] = action_code # Ensure action code is recorded
+                # Check if polling was successful and got data
+                if final_status == "SUCCESS" and isinstance(api_data, dict):
+                    # Get URL from api_data (actual data dict)
+                    image_url_key = 'url' if 'url' in api_data else 'cdnImage' # Prefer url after normalization potentially
+                    image_url = api_data.get(image_url_key)
 
-                # --- 生成期望的文件名 --- #
-                try:
-                    # 加载元数据以构建索引
-                    all_tasks = load_all_metadata(logger)
-                    all_tasks_index = _build_metadata_index(all_tasks)
-                    # 传递 normalized_result (包含 action_code 和 original_job_id)
-                    expected_filename = _generate_expected_filename(logger, normalized_result, all_tasks_index)
-                except Exception as e:
-                    logger.error(f"为任务 {new_job_id} 生成期望文件名时出错: {e}，将使用 job_id 作为备用名。")
-                    expected_filename = f"action_{new_job_id}.png"
-                # ---------------------- #
+                    if image_url:
+                        logger.info(f"任务 {new_job_id} 完成，图像 URL: {image_url}")
 
-                download_success, saved_path, image_seed = download_and_save_image(
-                    logger,
-                    image_url,
-                    new_job_id, # Use the NEW job ID
-                    normalized_result.get('prompt'),
-                    expected_filename, # <--- Pass generated filename
-                    normalized_result.get('concept'),
-                    normalized_result.get('variations'),
-                    normalized_result.get('global_styles'),
-                    original_job_id,
-                    action_code,
-                    None, # components
-                    normalized_result.get('seed')
-                    # original_concept (handled by generator)
-                    # prefix (handled by generator)
-                )
-                if download_success:
-                    # Metadata is now saved inside download_and_save_image
-                    logger.info(f"操作 '{action_code}' 的图像和元数据已保存: {saved_path}")
-                    print(f"操作 '{action_code}' 的图像和元数据已保存: {saved_path}")
-                    # --- Update Last Succeed Job ID --- #
-                    write_last_succeed_job_id(logger, new_job_id)
-                    # Last job ID already written upon submission, return success
-                    return 0
+                        # 标准化API结果，以便保存 (use api_data)
+                        normalized_result = normalize_api_response(logger, api_data)
+                        normalized_result['job_id'] = new_job_id # Ensure job_id is in the dict
+                        normalized_result['original_job_id'] = original_job_id # Ensure original job ID is recorded
+                        normalized_result['action_code'] = action_code # Ensure action code is recorded
+
+                        # --- 生成期望的文件名 --- #
+                        try:
+                            all_tasks = load_all_metadata(logger)
+                            all_tasks_index = _build_metadata_index(all_tasks)
+                            expected_filename = _generate_expected_filename(logger, normalized_result, all_tasks_index)
+                        except Exception as e:
+                            logger.error(f"为任务 {new_job_id} 生成期望文件名时出错: {e}，将使用 job_id 作为备用名。")
+                            expected_filename = f"action_{new_job_id}.png"
+                        # ---------------------- #
+
+                        download_success, saved_path, image_seed = download_and_save_image(
+                            logger,
+                            image_url,
+                            new_job_id, # Use the NEW job ID
+                            normalized_result.get('prompt'),
+                            expected_filename, # Pass generated filename
+                            normalized_result.get('concept'),
+                            normalized_result.get('variations'),
+                            normalized_result.get('global_styles'),
+                            original_job_id,
+                            action_code,
+                            None, # components
+                            normalized_result.get('seed')
+                        )
+                        if download_success:
+                            logger.info(f"操作 '{action_code}' 的图像和元数据已保存: {saved_path}")
+                            print(f"操作 '{action_code}' 的图像和元数据已保存: {saved_path}")
+                            write_last_succeed_job_id(logger, new_job_id)
+                            return 0
+                        else:
+                            logger.error(f"操作 '{action_code}' 的图像下载或保存失败 (Job ID: {new_job_id})。")
+                            print(f"错误：操作 '{action_code}' 的图像下载或保存失败。")
+                            return 1 # Return failure, even though submission was ok
+                    else:
+                        # SUCCESS status but no image URL in api_data
+                        logger.error(f"轮询操作 '{action_code}' (Job ID: {new_job_id}) 成功，但未获取到图像 URL。")
+                        print(f"错误：轮询操作 '{action_code}' 成功，但未获取到图像 URL。")
+                        # Save basic metadata anyway
+                        normalized_result = normalize_api_response(logger, api_data or {})
+                        save_image_metadata(
+                            logger, None, new_job_id, None, None, None,
+                            original_job_info.get("prompt", f"Action: {action_code} on {original_job_id}") if original_job_info else f"Action: {action_code} on {original_job_id}",
+                            original_job_info.get("concept") if original_job_info and original_job_info.get("concept") else "action",
+                            original_job_info.get("variations", []) if original_job_info else [],
+                            original_job_info.get("global_styles", []) if original_job_info else [],
+                            None, normalized_result.get("seed"), original_job_id,
+                            action_code=action_code,
+                            status=f"polling_success_no_url"
+                        )
+                        return 1 # Return failure
+                elif final_status == "FAILED":
+                    # Handle FAILED status returned by poll_for_result
+                    # api_data here is the full error response from the API client
+                    error_message = api_data.get('message', '未知错误') if isinstance(api_data, dict) else '未知错误'
+                    logger.error(f"轮询操作 '{action_code}' (Job ID: {new_job_id}) 失败。API 消息: {error_message}")
+                    print(f"错误：轮询操作 '{action_code}' 失败。API 消息: {error_message}")
+                    # Save basic metadata for the failed attempt
+                    normalized_result = normalize_api_response(logger, api_data or {})
+                    save_image_metadata(
+                        logger, None, new_job_id, None, None, None,
+                        original_job_info.get("prompt", f"Action: {action_code} on {original_job_id}") if original_job_info else f"Action: {action_code} on {original_job_id}",
+                        original_job_info.get("concept") if original_job_info and original_job_info.get("concept") else "action",
+                        original_job_info.get("variations", []) if original_job_info else [],
+                        original_job_info.get("global_styles", []) if original_job_info else [],
+                        None, normalized_result.get("seed"), original_job_id,
+                        action_code=action_code,
+                        status=f"polling_failed: {final_status}" # Use final_status
+                    )
+                    return 1 # Return failure
                 else:
-                    logger.error(f"操作 '{action_code}' 的图像下载或保存失败 (Job ID: {new_job_id})。")
-                    print(f"错误：操作 '{action_code}' 的图像下载或保存失败。")
-                    return 1 # Return failure, even though submission was ok
+                    # Handle unexpected status from poll_for_result (should not happen if API client is correct)
+                    logger.error(f"轮询操作 '{action_code}' (Job ID: {new_job_id}) 返回意外状态: {final_status}")
+                    print(f"错误：轮询操作 '{action_code}' 返回意外状态: {final_status}")
+                    return 1 # Return failure
             else:
-                status = final_result.get('status') if final_result else 'N/A'
-                logger.error(f"轮询操作 '{action_code}' (Job ID: {new_job_id}) 结果失败或未获取到图像 URL。最后状态: {status}")
-                print(f"错误：轮询操作 '{action_code}' 结果失败或未获取到图像 URL。最后状态: {status}")
-                # 标准化结果用于保存基本元数据
-                normalized_result = normalize_api_response(logger, final_result or {})
-                # Still save basic metadata to record the action attempt
+                # Handle poll_for_result returning None (timeout or other poll failure)
+                logger.error(f"轮询操作 '{action_code}' (Job ID: {new_job_id}) 失败或超时。")
+                print(f"错误：轮询操作 '{action_code}' 失败或超时。")
+                # Save basic metadata for the failed attempt
                 save_image_metadata(
                     logger, None, new_job_id, None, None, None,
                     original_job_info.get("prompt", f"Action: {action_code} on {original_job_id}") if original_job_info else f"Action: {action_code} on {original_job_id}",
-                    original_job_info.get("concept") if original_job_info and original_job_info.get("concept") else "action", # 继承原始概念，如果没有则使用 "action"
+                    original_job_info.get("concept") if original_job_info and original_job_info.get("concept") else "action",
                     original_job_info.get("variations", []) if original_job_info else [],
                     original_job_info.get("global_styles", []) if original_job_info else [],
-                    None, # Components removed
-                    normalized_result.get("seed"), # Seed from normalized result
-                    original_job_id, # Link to original job
-                    action_code=action_code, # 显式添加action_code
-                    status=f"polling_failed: {status}" # Record poll status
+                    None, None, original_job_id, # No seed available
+                    action_code=action_code,
+                    status="polling_timeout_or_error"
                 )
                 return 1 # Return failure
         elif not wait and not hook_url:

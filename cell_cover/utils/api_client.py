@@ -13,7 +13,7 @@ import logging
 import os
 import mimetypes
 import base64
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 
 import requests
 
@@ -121,7 +121,7 @@ def poll_for_result(
     poll_interval: int = POLL_INTERVAL_SECONDS,
     timeout: int = FETCH_TIMEOUT_SECONDS,
     max_retries_per_poll: int = 1
-) -> Optional[Dict[str, Any]]:
+) -> Optional[Tuple[str, Any]]:
     """轮询 /fetch 接口获取任务结果
 
     Args:
@@ -133,7 +133,8 @@ def poll_for_result(
         max_retries_per_poll: 每次轮询的最大重试次数
 
     Returns:
-        Optional[Dict[str, Any]]: 成功时返回包含任务数据的字典，失败时返回 None
+        Optional[Tuple[str, Any]]: 成功时返回包含状态和任务数据的元组 (status, data_dict or full_response),
+                                      轮询超时或完全失败时返回 None。
     """
     url = f"{TTAPI_BASE_URL}/fetch"
     headers = {
@@ -204,8 +205,8 @@ def poll_for_result(
             if status == "SUCCESS":
                 if isinstance(data, dict) and data.get("cdnImage"):
                     logger.info("任务完成，获取到图像 URL")
-                    logger.debug(f"  poll_for_result 准备返回成功数据: {data!r}")
-                    return data
+                    logger.debug(f"  poll_for_result 准备返回成功元组: ('SUCCESS', {data!r})")
+                    return ("SUCCESS", data)
                 else:
                     logger.error("任务成功但未找到图像 URL 或 data 格式不正确")
                     logger.debug(f"  poll_for_result 准备返回 None (SUCCESS but no cdnImage/data)")
@@ -214,14 +215,8 @@ def poll_for_result(
                 error_message = current_result.get("message", "未知错误")
                 logger.warning(f"任务失败: {error_message}")
                 print(f"  任务状态: 失败 - {error_message}")
-                logger.debug(f"  poll_for_result 准备返回失败数据 (FAILED)")
-                # 返回失败数据，而不是 None，这样调用者可以处理失败状态
-                # 确保数据中包含 status 字段
-                if isinstance(data, dict):
-                    data['status'] = "FAILED"
-                else:
-                    data = {"status": "FAILED", "message": error_message}
-                return data
+                logger.debug(f"  poll_for_result 准备返回失败元组: ('FAILED', {current_result!r})")
+                return ("FAILED", current_result)
 
         elif not poll_successful:
              logger.error(f"在第 {poll_count} 次轮询中，所有重试均失败。")
