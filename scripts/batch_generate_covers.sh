@@ -1,28 +1,45 @@
 #!/bin/zsh
 
-# 一键生成脚本：为每个概念生成多种变体和风格组合的封面
+# 一键生成脚本：为匹配模式的概念生成随机变体/风格组合的封面
 # 作者：[您的名字或Heidi]
 # 日期：$(date +%Y-%m-%d)
 #
-# **重要：此脚本必须从项目根目录 (paper/) 执行**
-# 例如: cd /path/to/paper && ./cell_cover/batch_generate_covers.sh
+# **重要：此脚本必须从项目根目录执行**
+# 例如: cd /path/to/project/root && ./scripts/batch_generate_covers.sh <pattern>
 
 # --- 配置 ---
 # 配置文件相对于项目根目录的路径
 CONFIG_FILE="cell_cover/prompts_config.json"
-# Python 模块路径
-MODULE_PATH="cell_cover.generate_cover"
+# Python 模块路径 (使用 crc 命令简化)
+# MODULE_PATH="cell_cover.generate_cover" 
+CRC_COMMAND="crc" # 使用 crc 命令
 
 # 错误计数器上限
 MAX_ERRORS=5
 
-# 每次调用生成脚本后的等待时间（秒），防止API调用过于频繁
-# SLEEP_DURATION=15 # 改为随机延迟
-
 # --- 变量初始化 ---
 error_count=0
+filter_pattern="$1" # 获取第一个参数作为过滤模式
+
+# --- 函数定义 ---
+usage() {
+    echo "用法: $0 <过滤模式>"
+    echo "  <过滤模式>: 用于匹配概念键的模式 (例如 'c*', 'cb*', 'ca[23]')。"
+    echo "             使用 '**' 匹配所有概念。"
+    echo "示例:"
+    echo "  $0 'c*'      # 处理所有以 'c' 开头的概念"
+    echo "  $0 '**'      # 处理所有概念"
+    exit 1
+}
 
 # --- 前提检查 ---
+
+# 检查是否提供了参数
+if [ -z "$filter_pattern" ]; then
+    echo "错误：未提供过滤模式。"
+    usage
+fi
+
 echo "检查 jq 是否已安装..."
 if ! command -v jq &> /dev/null
 then
@@ -32,125 +49,119 @@ then
 fi
 echo "jq 已找到。"
 
+echo "检查 crc 命令是否可用..."
+if ! command -v $CRC_COMMAND &> /dev/null
+then
+    echo "错误：'$CRC_COMMAND' 命令未找到。请确保项目已正确安装并通过 'uv pip install .' 创建了命令。"
+    exit 1
+fi
+echo "'$CRC_COMMAND' 命令已找到。"
+
+
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "错误：配置文件未找到于 $CONFIG_FILE (请确保您在项目根目录运行此脚本)"
     exit 1
 fi
 
-
 echo "配置文件: $CONFIG_FILE"
-echo "Python模块: $MODULE_PATH"
+echo "过滤模式: $filter_pattern"
 echo "调用间隔: 随机 (61-180秒)"
 echo "---当前工作目录: $(pwd) ---"
 
-# --- 主要逻辑 ---
+# --- 获取概念和风格列表 ---
 
-# 使用 jq 获取所有概念的 key
-concept_keys=$(jq -r '.concepts | keys[]' "$CONFIG_FILE")
-
-if [ -z "$concept_keys" ]; then
+# 获取所有概念的 key
+all_concept_keys=$(jq -r '.concepts | keys[]' "$CONFIG_FILE")
+if [ -z "$all_concept_keys" ]; then
     echo "错误：无法从配置文件中读取概念列表。"
     exit 1
 fi
 
-echo "将为以下概念生成图像组合："
-echo $concept_keys
-echo "---"
+# 获取所有全局风格的 key，存储到 Zsh 数组
+local -a global_styles_list
+while IFS= read -r style; do
+    if [[ -n "$style" ]]; then # 跳过空行
+        global_styles_list+=("$style")
+    fi
+done < <(jq -r '.global_styles | keys[]' "$CONFIG_FILE")
 
-# 循环遍历每个概念 (使用 while read 确保正确处理每个 key)
-echo "$concept_keys" | while IFS= read -r concept; do
+if [ ${#global_styles_list[@]} -eq 0 ]; then
+    echo "警告：未在配置文件中找到全局风格。"
+fi
+echo "找到 ${#global_styles_list[@]} 个全局风格。"
+
+
+# --- 主要逻辑 ---
+
+matched_concepts=0
+# 循环遍历每个概念，根据模式进行过滤
+echo "$all_concept_keys" | while IFS= read -r concept; do
     # 跳过空行
     if [ -z "$concept" ]; then
         continue
     fi
 
-    # --- 添加跳过 ca 的逻辑 ---
-    if [ "$concept" = "ca" ]; then
-        echo "根据要求，跳过概念 'ca'..."
-        continue
-    fi
-    # --- 结束跳过逻辑 ---
+    # 检查是否匹配模式 (使用 Zsh 的 [[ ]] 和模式匹配)
+    # 或者如果模式是 '**' 则始终匹配
+    if [[ "$filter_pattern" == "**" || "$concept" == $filter_pattern ]]; then
+        echo "匹配概念: $concept ..."
+        matched_concepts=$((matched_concepts + 1))
 
-    echo "处理概念: $concept ..."
+        # --- 获取此概念的变体 ---
+        local -a concept_variations_list
+        while IFS= read -r variation; do
+            if [[ -n "$variation" ]]; then # 跳过空行
+                concept_variations_list+=("$variation")
+            fi
+        done < <(jq -r --arg concept "$concept" '.concepts[$concept].variations | keys[] // empty' "$CONFIG_FILE") # 使用 // empty 处理 null
 
-    # --- 为每个概念定义要组合的变体和风格 --- #
-    # (根据 Cell 编辑视角选择，旨在提供对比)
-    var1=""
-    var2=""
-    style1=""
-    style2=""
+        # --- 随机选择变体 (如果存在) ---
+        local random_var=""
+        if [ ${#concept_variations_list[@]} -gt 0 ]; then
+            random_var_index=$(( (RANDOM % ${#concept_variations_list[@]}) + 1 )) # Zsh array index starts at 1
+            random_var=${concept_variations_list[$random_var_index]}
+            echo "  随机选择变体: $random_var"
+        else
+            echo "  概念 '$concept' 没有定义变体，将不使用 -var。"
+        fi
 
-    case "$concept" in
-        ca) # 仍然定义，但会被上面的 if 跳过
-            var1="scientific"
-            var2="dramatic"
-            style1="focus"
-            style2="illustration"
-            ;;
-        ca2)
-            var1="detailed"
-            var2="dramatic"
-            style1="electron_microscope"
-            style2="palette_cool" # 更新：使用冷色调对比
-            ;;
-        ca3)
-            var1="network"
-            var2="depth"
-            style1="cinematic"
-            style2="dark_bg" # 保持
-            ;;
-        cb)
-            var1="abstract"
-            var2="dynamic"
-            style1="focus"
-            style2="palette_warm" # 更新：使用暖色调对比
-            ;;
-        cb2)
-            var1="fluid"
-            var2="wave"
-            style1="dark_bg"
-            style2="photorealistic" # 保持
-            ;;
-        cb3)
-            var1="data"
-            var2="fractal"
-            style1="palette_bw_gold" # 更新：使用黑白金对比
-            style2="cinematic"
-            ;;
-        *)
-            echo "警告：概念 '$concept' 没有预定义的变体/风格组合，将跳过。"
-            continue
-            ;;
-    esac
+        # --- 随机选择全局风格 (如果存在) ---
+        local random_style=""
+        if [ ${#global_styles_list[@]} -gt 0 ]; then
+            random_style_index=$(( (RANDOM % ${#global_styles_list[@]}) + 1 ))
+            random_style=${global_styles_list[$random_style_index]}
+            echo "  随机选择风格: $random_style"
+        else
+             echo "  没有可用的全局风格，将不使用 --style。"
+        fi
 
-    echo "  选择的组合:"
-    echo "    Variation 1: $var1"
-    echo "    Variation 2: $var2"
-    echo "    Style 1    : $style1"
-    echo "    Style 2    : $style2"
-
-    # --- 构建并执行命令 (每个概念生成 2 个组合) --- #
-    commands_to_run=()
-    # 组合 1: Var1 + Style1
-    commands_to_run+=("python -m $MODULE_PATH create -c $concept -var "$var1" --style "$style1"")
-    # 组合 2: Var2 + Style2
-    commands_to_run+=("python -m $MODULE_PATH create -c $concept -var "$var2" --style "$style2"")
-
-    for cmd in "${commands_to_run[@]}"; do
-        echo "\n  即将执行: $cmd"
-        # 实际执行命令
-        eval $cmd
-        exit_code=$?
+        # --- 构建命令 ---
+        # 使用 crc 命令替代直接调用 python 模块
+        cmd_parts=("$CRC_COMMAND" "create" "-c" "$concept")
+        if [[ -n "$random_var" ]]; then
+            cmd_parts+=("-var" "$random_var")
+        fi
+        if [[ -n "$random_style" ]]; then
+             cmd_parts+=("--style" "$random_style")
+        fi
         
+        # 为了清晰显示和安全执行，避免直接使用 eval，将参数数组传递给命令
+        echo "
+  即将执行: ${(j: :)cmd_parts}" # 显示将要执行的命令
+
+        # 实际执行命令
+        "${cmd_parts[@]}" # 直接执行数组形式的命令
+        exit_code=$?
+
         # 检查上一个命令的退出状态
         if [ $exit_code -ne 0 ]; then
             error_count=$((error_count + 1))
             echo "  警告：上一个命令执行失败 (退出码 $exit_code)。当前累计错误次数: $error_count / $MAX_ERRORS"
-            
+
             # 检查是否达到错误上限
             if [ $error_count -ge $MAX_ERRORS ]; then
                 echo "错误：累计错误次数达到上限 ($MAX_ERRORS)，脚本终止。请检查日志和API服务状态。"
-                exit 1
+                exit 1 # 强制退出整个脚本
             fi
         fi
 
@@ -158,11 +169,17 @@ echo "$concept_keys" | while IFS= read -r concept; do
         random_sleep=$(( (RANDOM % 120) + 61 ))
         echo "  等待 ${random_sleep} 秒..."
         sleep $random_sleep
-    done
+        echo "概念 $concept 处理完毕。"
+        echo "---"
+    # else
+        # echo "跳过概念: $concept (不匹配模式 '$filter_pattern')" # 可选：显示被跳过的概念
+    fi
 
-    echo "概念 $concept 处理完毕。"
-    echo "---"
 done # End of while read loop
 
-echo "所有概念处理完成！请检查 images 和 metadata 目录。"
+if [ $matched_concepts -eq 0 ]; then
+     echo "警告：没有概念匹配模式 '$filter_pattern'。"
+fi
+
+echo "所有匹配的概念处理完成！请检查 outputs/images 和 cell_cover/metadata 目录。"
 exit 0 

@@ -27,11 +27,9 @@ CELL_COVER_DIR = UTILS_DIR.parent
 ROOT_DIR = CELL_COVER_DIR.parent # Adjust if your structure is different
 
 # --- Directory Constants ---
-CACHE_DIR = os.path.join(ROOT_DIR, '.cache', 'cell_cover')
 CONFIG_DIR = os.path.join(ROOT_DIR, '.config', 'cell_cover') # For config files
 IMAGE_DIR = os.path.join(ROOT_DIR, 'cell_cover', 'images') # Where generated images are saved by default
 META_DIR = os.path.join(ROOT_DIR, 'cell_cover', 'metadata') # For metadata files
-USER_DATA_DIR = os.path.join(ROOT_DIR, 'cell_cover', 'user_data') # Example for other data
 OUTPUT_DIR = os.path.join(ROOT_DIR, 'cell_cover', 'outputs') # For generated prompts etc.
 
 # --- Filename Constants ---
@@ -45,7 +43,7 @@ LAST_SUCCEED_FILENAME = os.path.join(CONFIG_DIR, 'last_succeed.json')
 # Directories to ensure exist
 # Added CONFIG_DIR explicitly, although PROMPTS_CONFIG_PATH implies it.
 # Added META_DIR explicitly.
-DIRS_TO_CHECK = [CACHE_DIR, CONFIG_DIR, IMAGE_DIR, META_DIR, USER_DATA_DIR, OUTPUT_DIR]
+DIRS_TO_CHECK = [CONFIG_DIR, IMAGE_DIR, META_DIR, OUTPUT_DIR]
 
 def ensure_directories(logger, *paths):
     """Ensure that the specified directories exist, creating them if necessary."""
