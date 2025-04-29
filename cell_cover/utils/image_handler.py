@@ -19,7 +19,12 @@ import json
 
 # 从 utils 导入必要的函数 - 使用统一的元数据管理模块
 from .metadata_manager import save_image_metadata
-from .filesystem_utils import ensure_directories, sanitize_filename, IMAGE_DIR
+from .filesystem_utils import (
+    ensure_directories, sanitize_filename
+)
+
+# 定义 IMAGE_DIR 本地 (移除 - 应动态确定)
+# IMAGE_DIR = 'images'  
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +45,15 @@ def save_image(image, filename=None, directory=None):
         if isinstance(image, np.ndarray):
             image = Image.fromarray(image)
         
-        # 设置默认目录
+        # 设置默认目录 - 这里也应该移除，由调用者指定
+        # if directory is None:
+        #     directory = IMAGE_DIR # Removed dependency on global constant
         if directory is None:
-            directory = IMAGE_DIR
+            logger.error("save_image: 必须提供保存目录参数 (directory)")
+            return None
         
         # 确保目录存在
-        ensure_directories(directory)
+        ensure_directories(logger, directory)
         
         # 如果未提供文件名，使用时间戳创建
         if filename is None:
@@ -144,169 +152,136 @@ def resize_image(image, width=None, height=None, maintain_aspect=True):
 def download_and_save_image(
     logger: logging.Logger,
     image_url: str,
-    job_id: str, # 当前任务的Job ID (可能是原始的，也可能是Action的)
+    job_id: str,
     prompt: str,
-    expected_filename: str, # <--- 移到这里：由调用者传入的期望文件名
-    concept: Optional[str] = None, # 当前任务的Concept
-    variations: Optional[list] = None, # 当前任务的Variations
-    styles: Optional[list] = None, # 当前任务的Styles
-    original_job_id: Optional[str] = None, # 如果是Action，这是原始任务ID
-    action_code: Optional[str] = None, # 如果是Action，这是执行的动作
-    components: Optional[list] = None, # API 返回的 components (已弃用)
+    expected_filename: Optional[str] = None,
+    concept: Optional[str] = None,
+    variations: Optional[list] = None,
+    styles: Optional[list] = None,
+    original_job_id: Optional[str] = None,
+    action_code: Optional[str] = None,
+    components: Optional[list] = None,
     seed: Optional[str] = None
-    # 新增参数以支持Action命名 (现在由调用者处理)
-    # original_concept: Optional[str] = None, # 如果是Action，这是原始任务的Concept
-    # prefix: str = "" # 用于 recreate 等特殊情况
 ) -> tuple[bool, Optional[str], Optional[str]]:
-    """Downloads an image, saves it using the provided filename, and saves metadata.
-    Now returns more specific error info on failure.
+    """下载图像并保存到指定位置，同时更新元数据。
 
     Args:
-        logger: Logger instance.
-        image_url: URL of the image to download.
-        job_id: The Job ID associated with this image.
-        prompt: The prompt used.
-        concept: The concept key (optional).
-        variations: Variation keys used (optional).
-        styles: Style keys used (optional).
-        original_job_id: Original Job ID if this is a derived image (optional).
-        action_code: Action code if this resulted from an action (optional).
-        components: Components list from API result (optional).
-        seed: Seed value from API result (optional).
-        expected_filename: The exact filename (including extension) to save the image as.
+        logger: 日志记录器
+        image_url: 图像URL
+        job_id: 任务ID
+        prompt: 生成提示词
+        expected_filename: 期望的文件名（可选，如果未提供将基于job_id生成）
+        concept: 创意概念（可选）
+        variations: 变体列表（可选）
+        styles: 风格列表（可选）
+        original_job_id: 原始任务ID（如果是派生图像）
+        action_code: 操作代码（如果是由操作产生的）
+        components: API结果中的组件列表（可选）
+        seed: API结果中的种子值（可选）
 
     Returns:
         tuple[bool, Optional[str], Optional[str]]: 
-          (success status, filepath_or_error_info, seed_used)
-          On failure, filepath_or_error_info contains a string like '404_error',
-          'request_error', 'io_error', 'unknown_error'.
+          (成功状态, 文件路径或错误信息, 使用的种子)
     """
-    # Log entry point with improved logging for action chain info
-    logger.debug(f"进入 download_and_save_image, job_id={job_id}, url='{image_url[:50]}...', expected_filename={expected_filename}")
-    # if action_code and original_job_id:
-    #     logger.debug(f"这是一个 Action 结果: action_code={action_code}, original_job_id={original_job_id}, original_concept={original_concept}")
-    # if prefix:
-    #     logger.debug(f"使用文件名前缀: {prefix}")
+    logger.debug(f"进入 download_and_save_image, job_id={job_id}, url='{image_url[:50]}...'")
 
     if not image_url:
-        logger.error("Image URL is empty, cannot download.")
-        return False, None, None
-        
-    if not expected_filename:
-        logger.error("Expected filename is empty, cannot save.")
-        return False, None, None
-
-    # 1. 使用传入的文件名确定路径
-    # timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    # job_id_part = job_id[:6] if job_id else "nojobid"
-    # filename = ""
-
-    # # 清理变体和风格列表 (移除空字符串等)
-    # clean_variations = [v for v in variations if v] if variations else []
-    # clean_styles = [s for s in styles if s] if styles else []
-
-    # if action_code and original_job_id:
-    #     # --- Action 任务命名 --- #
-    #     # 使用传入的 original_concept，如果为空则尝试使用当前 concept 或 'unknown'
-    #     base_concept = sanitize_filename(original_concept or concept or "unknown")
-    #     orig_job_id_part = original_job_id[:6] if original_job_id else "noorigid"
-    #     safe_action_code = sanitize_filename(action_code)
-    #     filename = f"{prefix}{base_concept}-{orig_job_id_part}-{safe_action_code}-{timestamp}.png"
-    #     logger.debug(f"生成 Action 文件名: {filename}")
-    # else:
-    #     # --- 原始任务命名 --- #
-    #     base_concept = sanitize_filename(concept or "direct")
-    #     parts = [prefix + base_concept, job_id_part]
-    #     if clean_variations:
-    #         parts.append("-".join(map(sanitize_filename, clean_variations)))
-    #     if clean_styles:
-    #         parts.append("-".join(map(sanitize_filename, clean_styles)))
-    #     parts.append(timestamp)
-    #     filename = "-".join(parts) + ".png"
-    #     logger.debug(f"生成原始任务文件名: {filename}")
-
-    # # Limit overall filename length (redundant if sanitize_filename works, but safe)
-    # filename = filename[:MAX_FILENAME_LENGTH] 
-    # if not filename.lower().endswith('.png'): # Ensure extension after potential truncation
-    #      filename = filename[:MAX_FILENAME_LENGTH - 4] + ".png" 
-
-    # 使用传入的文件名
-    filename = expected_filename
+        logger.error("图像URL为空，无法下载。")
+        return False, "url_empty", None
     
-    # Use IMAGE_DIR constant for the save directory
-    save_dir = IMAGE_DIR
+    # 获取用户主目录下的.crc目录
+    home_dir = os.path.expanduser("~")
+    crc_base_dir = os.path.join(home_dir, '.crc')
+    
+    # 读取配置获取输出目录
+    output_dir = None
+    try:
+        with open(os.path.join(crc_base_dir, 'state', 'config.json'), 'r') as f:
+            import json
+            user_config = json.load(f)
+            output_dir = user_config.get('output_dir')
+    except (FileNotFoundError, json.JSONDecodeError):
+        # 如果配置不存在或解析失败，使用默认值
+        output_dir = os.path.join(crc_base_dir, 'output')
+    
+    # 创建基于概念的子目录
+    concept_dir = concept if concept and concept != 'unknown' else 'general'
+    save_dir = os.path.join(output_dir, concept_dir)
+    
+    # 生成文件名
+    if not expected_filename or expected_filename == job_id + '.png':
+        # 如果没有提供预期文件名，或者只是默认的job_id，则生成一个更好的文件名
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        short_prompt = prompt.split(',')[0].strip()[:30]  # 只用prompt的第一部分作为文件名
+        short_prompt = sanitize_filename(short_prompt)
+        filename = f"{short_prompt}_{timestamp}.png"
+    else:
+        filename = expected_filename
+        # 确保文件名有扩展名
+        if not filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+            filename += '.png'
+    
+    # 构建完整路径
     filepath = os.path.join(save_dir, filename)
-
+    
     logger.info(f"准备下载图像从 {image_url} 到 {filepath}")
 
-    # 2. Ensure directory exists
+    # 确保目录存在
     if not ensure_directories(logger, save_dir):
-        logger.error(f"Failed to ensure save directory exists: {save_dir}")
-        return False, None, None
+        logger.error(f"无法创建或访问保存目录: {save_dir}")
+        return False, "dir_creation_error", None
 
-    # 3. Download image
+    # 下载图像
     try:
-        response = requests.get(image_url, stream=True, timeout=60) # Add timeout
-        response.raise_for_status() # Raise HTTPError for bad responses (4xx or 5xx)
+        response = requests.get(image_url, stream=True, timeout=30)
+        response.raise_for_status()
 
-        # 4. Save image
+        # 保存图像
         with open(filepath, 'wb') as f:
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
+        logger.info(f"图像下载成功并保存到: {filepath}")
         
-        logger.info(f"Image successfully downloaded and saved to: {filepath}")
-        
-        # 5. Save Metadata (Included for compatibility)
-        # Generate a local image ID if not provided (API result might have one)
-        image_id = str(uuid.uuid4()) 
-        
-        # Use the seed passed in (likely from API result)
-        final_seed = seed 
-
-        # Log metadata saving with chain information if applicable
-        if action_code and original_job_id:
-            logger.info(f"保存 Action 结果元数据: action_code={action_code}, original_job_id={original_job_id}")
+        # 保存元数据
+        metadata_dir = os.path.join(crc_base_dir, 'metadata')
+        if metadata_dir:
+            try:
+                save_image_metadata(
+                    logger=logger,
+                    image_id=str(uuid.uuid4()),
+                    job_id=job_id,
+                    filename=filename,
+                    filepath=filepath,
+                    url=image_url,
+                    prompt=prompt,
+                    concept=concept,
+                    metadata_dir=metadata_dir,
+                    variations=variations,
+                    global_styles=styles,
+                    components=components,
+                    seed=seed,
+                    original_job_id=original_job_id,
+                    action_code=action_code
+                )
+                logger.info(f"已保存图像元数据，job_id={job_id}")
+            except Exception as e:
+                logger.error(f"保存元数据时出错: {str(e)}")
+                # 继续，因为图像下载已成功
+        else:
+            logger.warning("未提供元数据目录，跳过元数据保存")
             
-        # Call the metadata saving function from image_metadata module
-        # 确保传递所有关键参数，尤其是链条追踪需要的参数
-        meta_success = save_image_metadata(
-            logger,
-            image_id=image_id, # Use generated local ID
-            job_id=job_id,
-            filename=filename, # 使用新生成的文件名
-            filepath=filepath, # 使用新生成的路径
-            url=image_url,
-            prompt=prompt,
-            concept=concept, # 传递当前任务的concept
-            variations=variations, # 传递当前任务的variations
-            global_styles=styles, # 传递当前任务的styles
-            components=None, # Components removed
-            seed=final_seed,
-            original_job_id=original_job_id,
-            action_code=action_code,
-            status='completed'
-        )
-        if not meta_success:
-            logger.error(f"Image downloaded to {filepath}, but failed to save metadata!")
-            # Decide if this constitutes overall failure. Let's return True for download success.
-            # The error is logged, and the user has the image file.
-            
-        return True, filepath, final_seed
-
+        return True, filepath, seed
+        
+    except requests.exceptions.HTTPError as e:
+        status_code = e.response.status_code if hasattr(e, 'response') else 'unknown'
+        logger.error(f"HTTP错误 ({status_code}): {str(e)}")
+        return False, f"{status_code}_error", None
     except requests.exceptions.RequestException as e:
-        status_code_info = "request_error" # Default error type
-        if e.response is not None:
-            if e.response.status_code == 404:
-                status_code_info = "404_error"
-            elif e.response.status_code == 403:
-                 status_code_info = "403_error"
-            else:
-                status_code_info = f"{e.response.status_code}_error"
-        logger.error(f"Error downloading image from {image_url} ({status_code_info}): {e}")
-        return False, status_code_info, None # Return specific error info
+        logger.error(f"请求错误: {str(e)}")
+        return False, "request_error", None
     except IOError as e:
-        logger.error(f"Error saving image to {filepath}: {e}")
-        return False, "io_error", None # Return specific error info
+        logger.error(f"IO错误: {str(e)}")
+        return False, "io_error", None
     except Exception as e:
-        logger.error(f"An unexpected error occurred during image download/save: {e}", exc_info=True)
-        return False, "unknown_error", None # Return specific error info
+        logger.error(f"下载或保存图像时发生未知错误: {str(e)}")
+        return False, "unknown_error", None

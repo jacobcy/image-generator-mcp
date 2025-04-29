@@ -29,19 +29,21 @@ def handle_create(
     config: Dict[str, Any],
     logger: logging.Logger,
     api_key: str,
-    concept: str = None,
-    prompt: str = None,
-    variation: str = None,
-    style: str = None,
-    aspect: str = None,
-    quality: str = None,
-    version: str = None,
-    cref: str = None,
+    concept: Optional[str] = None,
+    prompt: Optional[str] = None,
+    variation: Optional[str] = None,
+    style: Optional[str] = None,
+    aspect: str = 'cell_cover',
+    quality: str = 'high',
+    version: str = 'v6',
+    cref: Optional[str] = None,
     clipboard: bool = False,
     save_prompt: bool = False,
-    mode: str = None,
-    hook_url: str = None,
-    notify_id: str = None,
+    mode: str = 'relax',
+    hook_url: Optional[str] = None,
+    notify_id: Optional[str] = None,
+    cwd: Optional[str] = None,
+    state_dir: Optional[str] = None,
 ):
     """处理 'create' 命令。"""
     if config is None:
@@ -214,19 +216,40 @@ def handle_create(
         style_for_metadata = style if style else None # 保持不变
         
         from ..utils.filesystem_utils import write_last_job_id
-        write_last_job_id(logger, job_id)
+        write_last_job_id(logger, job_id, state_dir)
         logger.info(f"已将任务 ID {job_id} 写入 last_job 文件")
 
-        # 写入基本元数据
-        save_image_metadata(
-            logger, None, job_id_for_save, None, None, None,
-            display_text, # 完整的最终提示词
-            concept_for_metadata, # 使用已设置好的 concept_for_metadata ("temp" or a real concept)
-            variation_for_metadata,
-            style_for_metadata,
-            None, None, None, # components, seed, original_job_id
-            # 移除 prompt_text 参数
-        )
+        # 在 handle_create 函数中，改进 metadata_dir 构造
+        try:
+            if cwd and isinstance(cwd, str):
+                metadata_dir = os.path.join(cwd, '.crc', 'metadata')
+            else:
+                cwd_fallback = os.getcwd()  # 使用当前工作目录作为后备
+                metadata_dir = os.path.join(cwd_fallback, '.crc', 'metadata')
+            logger.info(f"Constructed metadata_dir: {metadata_dir}")  # 添加调试日志
+        except Exception as e:
+            logger.error(f"Error constructing metadata_dir: {str(e)}")
+            metadata_dir = os.path.join(os.getcwd(), '.crc', 'metadata')  # 最终后备
+        # 然后修改 save_image_metadata 调用，确保 metadata_dir 不是 None
+        if metadata_dir:
+            save_image_metadata(
+                logger,
+                metadata_dir,
+                job_id_for_save,
+                None,
+                None,
+                None,
+                display_text,
+                concept_for_metadata,
+                variation_for_metadata,
+                style_for_metadata,
+                None,
+                None,
+                None
+            )
+        else:
+            logger.error("metadata_dir is still None, cannot proceed.")
+            raise ValueError("Failed to construct metadata_dir")
         logger.info(f"已将任务 {job_id} 的基本元数据写入数据库")
         # -------------------------- #
 

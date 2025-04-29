@@ -13,6 +13,7 @@ from ..utils.api_client import poll_for_result, call_action_api
 from ..utils.filesystem_utils import write_last_job_id, write_last_succeed_job_id, read_last_job_id, read_last_succeed_job_id
 from ..utils.image_metadata import load_all_metadata, _build_metadata_index
 from ..utils.metadata_manager import _generate_expected_filename
+from ..constants import ACTION_CHOICES, ACTION_DESCRIPTIONS
 
 logger = logging.getLogger(__name__)
 
@@ -27,8 +28,22 @@ def is_likely_job_id(identifier):
             return False
     return False
 
-from typing import Optional
-def handle_action(args, logger, api_key) -> int:
+def handle_action(
+    args,
+    logger,
+    api_key,
+    config=None,  # 添加 config 参数
+    cwd=None,
+    crc_base_dir=None,
+    state_dir=None
+):  # 确保其他参数保持一致
+    if args.list_:
+        # 输出可用的操作代码列表
+        print('可用的操作代码：')
+        for action in ACTION_CHOICES:
+            description = ACTION_DESCRIPTIONS.get(action, '无描述')
+            print(f"- {action}: {description}")
+        return 0  # 成功返回
     """处理 'action' 命令，对现有任务执行操作。"""
     # Access parameters from the args object
     action_code = args.action_code
@@ -44,9 +59,6 @@ def handle_action(args, logger, api_key) -> int:
     global logger_in_func # Avoid shadowing, use a different name or rely on passed logger
     logger_in_func = logger 
     logger_in_func.info(f"开始处理 'action' 命令: action='{action_code}', identifier={identifier}, last_job={last_job}, last_succeed={last_succeed}, wait={wait}, mode={mode}")
-
-    # 导入允许的 action_code 列表 - OK to import here
-    from ..cli import ACTION_CHOICES, ACTION_DESCRIPTIONS
 
     # 验证 action_code 是否在允许的列表中 (Use the unpacked action_code)
     if action_code not in ACTION_CHOICES:

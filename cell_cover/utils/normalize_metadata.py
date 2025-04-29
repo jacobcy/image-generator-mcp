@@ -31,7 +31,8 @@ from cell_cover.utils.metadata_manager import (
 # 需要导入底层的保存函数
 from cell_cover.utils.image_metadata import _save_metadata_file, _build_metadata_index, trace_job_history
 from cell_cover.utils.api import normalize_api_response
-from cell_cover.utils.filesystem_utils import METADATA_FILENAME, META_DIR, IMAGE_DIR, sanitize_filename
+# from cell_cover.utils.filesystem_utils import METADATA_FILENAME, META_DIR, IMAGE_DIR, sanitize_filename # Commented out due to ImportError
+from cell_cover.utils.filesystem_utils import sanitize_filename # Keep this one
 from cell_cover.utils.file_handler import MAX_FILENAME_LENGTH
 from cell_cover.utils.file_handler import _generate_expected_filename
 
@@ -44,8 +45,18 @@ logger = logging.getLogger('normalize_metadata')
 
 # --- 元数据规范化核心逻辑 --- #
 
-def normalize_all_metadata_records(logger: logging.Logger, tasks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """规范化内存中的任务记录列表（两阶段处理），并尝试重命名关联的文件。"""
+def normalize_all_metadata_records(logger: logging.Logger, tasks: List[Dict[str, Any]], output_dir: str, metadata_dir: str) -> List[Dict[str, Any]]:
+    """规范化内存中的任务记录列表（两阶段处理），并尝试重命名关联的文件。
+
+    Args:
+        logger: 日志记录器。
+        tasks: 原始任务记录列表。
+        output_dir: 图片文件期望存放的基础目录。
+        metadata_dir: 元数据文件所在的目录 (用于追溯历史)。
+
+    Returns:
+        List[Dict[str, Any]]: 规范化后的任务记录列表。
+    """
     if not tasks:
         logger.warning("传入的任务列表为空，无需规范化。")
         return []
@@ -125,7 +136,7 @@ def normalize_all_metadata_records(logger: logging.Logger, tasks: List[Dict[str,
 
         # 1. 概念规范化
         try:
-            normalized_with_concept = normalize_task_metadata(current_task, all_tasks_index, logger)
+            normalized_with_concept = normalize_task_metadata(current_task, all_tasks_index, logger, metadata_dir)
             current_task.update(normalized_with_concept) # 更新 current_task
             logger.debug(f"任务 {job_id[:6]} 概念规范化完成: concept='{current_task.get('concept')}'")
         except Exception as e:
@@ -139,7 +150,7 @@ def normalize_all_metadata_records(logger: logging.Logger, tasks: List[Dict[str,
         expected_filepath = None
         try:
             expected_filename = _generate_expected_filename(logger, current_task, all_tasks_index)
-            expected_filepath = os.path.join(IMAGE_DIR, expected_filename)
+            expected_filepath = os.path.join(output_dir, expected_filename)
         except Exception as e:
              logger.error(f"为任务 {job_id[:6]} 生成期望文件名时出错: {e}")
              error_count += 1
@@ -178,7 +189,7 @@ def normalize_all_metadata_records(logger: logging.Logger, tasks: List[Dict[str,
                 # 文件存在，检查是否需要重命名
                 if actual_filepath != expected_filepath:
                     try:
-                        os.makedirs(os.path.dirname(expected_filepath), exist_ok=True)
+                        os.makedirs(output_dir, exist_ok=True)
                         shutil.move(actual_filepath, expected_filepath)
                         logger.info(f"文件已重命名: '{current_task['filename']}' -> '{expected_filename}'")
                         current_task['filename'] = expected_filename # 更新为新文件名
@@ -228,21 +239,25 @@ def normalize_all_metadata_records(logger: logging.Logger, tasks: List[Dict[str,
 
     return final_normalized_tasks
 
-# --- 旧的 normalize_all_metadata 函数保持不变，用于命令行直接调用 --- #
-def normalize_all_metadata(backup=True, dry_run=False):
+# --- 旧的 normalize_all_metadata 函数修改以接收路径 --- #
+def normalize_all_metadata(metadata_dir: str, output_dir: str, backup=True, dry_run=False):
     """读取并规范化所有元数据记录（调用新的两阶段处理函数）。
 
     Args:
+        metadata_dir: 元数据文件所在目录。
+        output_dir: 图片文件期望存放的基础目录。
         backup (bool): 是否创建备份
         dry_run (bool): 是否只模拟运行不实际修改
 
     Returns:
         tuple: (成功规范化数量, 总记录数)
     """
-    logger.info("开始规范化元数据 (调用两阶段处理)...")
+    metadata_filename = "images_metadata.json"
+    metadata_filepath = os.path.join(metadata_dir, metadata_filename)
+    logger.info(f"开始规范化元数据 (调用两阶段处理): {metadata_filepath}")
 
-    # 1. 加载所有元数据
-    all_tasks = load_all_metadata(logger)
+    # 1. 加载所有元数据 (Pass metadata_dir)
+    all_tasks = load_all_metadata(logger, metadata_dir)
     if not all_tasks:
         logger.error("无法加载元数据或元数据为空")
         return (0, 0)
@@ -253,19 +268,19 @@ def normalize_all_metadata(backup=True, dry_run=False):
     # 2. 如果需要，创建备份
     if backup and not dry_run:
         try:
-            backup_path = f"{METADATA_FILENAME}.bak.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+            backup_path = f"{metadata_filepath}.bak.{datetime.now().strftime('%Y%m%d_%H%M%S')}"
             # 直接复制原始文件进行备份，因为加载可能已丢失信息
-            if os.path.exists(METADATA_FILENAME):
-                 shutil.copy2(METADATA_FILENAME, backup_path)
+            if os.path.exists(metadata_filepath):
+                 shutil.copy2(metadata_filepath, backup_path)
                  logger.info(f"已创建元数据备份: {backup_path}")
             else:
-                 logger.info("原始元数据文件不存在，无需备份")
+                 logger.info(f"原始元数据文件 {metadata_filepath} 不存在，无需备份")
         except Exception as e:
             logger.error(f"创建备份失败: {str(e)}")
             # 继续执行，不因备份失败而中止
 
-    # 3. 调用新的两阶段规范化函数
-    normalized_tasks_list = normalize_all_metadata_records(logger, all_tasks)
+    # 3. 调用新的两阶段规范化函数 (Pass output_dir and metadata_dir)
+    normalized_tasks_list = normalize_all_metadata_records(logger, all_tasks, output_dir, metadata_dir)
 
     processed_count = len(normalized_tasks_list)
     # 注意：这里的 skipped 应该是总数减去最终处理数，包括阶段一和阶段二跳过的
@@ -279,9 +294,9 @@ def normalize_all_metadata(backup=True, dry_run=False):
 
     if not dry_run:
         logger.info("准备覆盖写入规范化后的元数据...")
-        save_success = _save_metadata_file(logger, METADATA_FILENAME, final_metadata_structure)
+        save_success = _save_metadata_file(logger, metadata_dir, final_metadata_structure)
         if save_success:
-            logger.info(f"元数据规范化完成: 共处理{processed_count}条记录，跳过{skipped_overall}条。文件已更新: {METADATA_FILENAME}")
+            logger.info(f"元数据规范化完成: 共处理{processed_count}条记录，跳过{skipped_overall}条。文件已更新: {metadata_filepath}")
         else:
             logger.error("写入规范化后的元数据失败！请检查备份文件。")
             return (0, total_count) # Indicate failure
@@ -292,8 +307,8 @@ def normalize_all_metadata(backup=True, dry_run=False):
     return (processed_count, total_count)
 
 
-# --- normalize_task_metadata 保持不变 (使用上一轮修改的结果) ---
-def normalize_task_metadata(task: dict, all_tasks: dict, logger) -> dict:
+# --- normalize_task_metadata 修改以接收 metadata_dir --- #
+def normalize_task_metadata(task: dict, all_tasks: dict, logger, metadata_dir: str) -> dict:
     """
     规范化单个任务的元数据，只处理概念（concept）字段，不处理type字段。
     总是尝试追溯到根任务来获取 concept, variations, global_styles。
@@ -302,6 +317,7 @@ def normalize_task_metadata(task: dict, all_tasks: dict, logger) -> dict:
         task (dict): 需要规范化的任务数据
         all_tasks (dict): 所有任务数据的索引或列表 (期望是构建好的 index)
         logger: 日志记录器
+        metadata_dir: 元数据目录 (用于 trace_job_history)
 
     Returns:
         dict: 规范化后的任务数据，主要是更新concept字段
@@ -323,7 +339,7 @@ def normalize_task_metadata(task: dict, all_tasks: dict, logger) -> dict:
     # 只要任务有 original_job_id，就尝试追溯根任务
     if original_job_id:
         logger.debug(f"Task {job_id[:6]}: 有 original_job_id ({original_job_id[:6]})，尝试追溯历史...")
-        history_chain = trace_job_history(logger, original_job_id, all_tasks)
+        history_chain = trace_job_history(logger, original_job_id, metadata_dir, all_tasks)
 
         root_concept = "unknown" # Default concept if trace fails or root has no concept
         root_variations = ""
@@ -416,11 +432,27 @@ def main():
     parser = argparse.ArgumentParser(description='元数据规范化工具')
     parser.add_argument('--no-backup', action='store_true', help='不创建备份')
     parser.add_argument('--dry-run', action='store_true', help='仅模拟运行不实际修改')
+    # Add arguments for directories if run standalone
+    parser.add_argument('--cwd', default=os.getcwd(), help='指定工作目录 (默认: 当前目录)')
 
     args = parser.parse_args()
 
-    # 调用旧的入口函数，它内部会调用新的两阶段处理
+    # Setup paths based on cwd
+    cwd = args.cwd
+    crc_base_dir = os.path.join(cwd, '.crc')
+    metadata_dir = os.path.join(crc_base_dir, 'metadata')
+    output_dir = os.path.join(crc_base_dir, 'output')
+
+    # Ensure directories exist if run standalone
+    from cell_cover.utils.filesystem_utils import ensure_directories # Local import for standalone
+    if not ensure_directories(logger, metadata_dir, output_dir):
+        print(f"错误: 无法创建必要的目录 {metadata_dir} 或 {output_dir}")
+        return 1
+
+    # Call the modified function with paths
     processed_count, total_count = normalize_all_metadata(
+        metadata_dir=metadata_dir,
+        output_dir=output_dir,
         backup=not args.no_backup,
         dry_run=args.dry_run
     )

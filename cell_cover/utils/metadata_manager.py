@@ -25,7 +25,7 @@ from .image_metadata import (
     remove_job_metadata
 )
 
-from .filesystem_utils import ensure_directories, META_DIR, METADATA_FILENAME
+from .filesystem_utils import ensure_directories
 from .file_handler import _generate_expected_filename
 from .restore_metadata import restore_metadata_from_remote
 from .sync_metadata import sync_tasks
@@ -41,6 +41,10 @@ logger.debug("metadata_manager: Acting as compatibility layer. Functions importe
 # 警告：action_metadata.py 已弃用
 # 所有操作元数据现在都保存在 images_metadata.json 中
 # 使用 save_image_metadata 函数并传入 action_code 和 original_job_id 参数
+
+# 定义常量 (移除 - 这些现在应该基于 CWD 动态确定)
+# META_DIR = 'metadata'
+# METADATA_FILENAME = 'images_metadata.json'
 
 # 将所有导入的名称添加到 __all__ 以便 `from .metadata_manager import *` 工作 (如果需要)
 __all__ = [
@@ -62,23 +66,24 @@ __all__ = [
     '_generate_expected_filename',
 ]
 
-def restore_metadata_from_job_list(logger, job_list_file, image_metadata_file=None):
-    """
-    从任务列表文件恢复元数据（JSON格式的任务记录列表）。
-    此函数将解析任务列表并重建元数据，对于恢复操作很有用。
+# def restore_metadata_from_job_list(logger, job_list_file, image_metadata_file=None):
+#     """
+#     从任务列表文件恢复元数据（JSON格式的任务记录列表）。
+#     此函数将解析任务列表并重建元数据，对于恢复操作很有用。
     
-    Args:
-        logger: 日志记录器。
-        job_list_file: 包含任务记录的JSON文件路径。
-        image_metadata_file: 可选，目标元数据文件的路径。
+#     Args:
+#         logger: 日志记录器。
+#         job_list_file: 包含任务记录的JSON文件路径。
+#         image_metadata_file: 可选，目标元数据文件的路径。
         
-    Returns:
-        bool: 操作是否成功。
-    """
-    logger.error("restore_metadata_from_job_list 函数尚未实现")
-    return False
+#     Returns:
+#         bool: 操作是否成功。
+#     """
+#     logger.error("restore_metadata_from_job_list 函数尚未实现")
+#     return False
 
-def _load_metadata_file(logger, target_filename=METADATA_FILENAME):
-    # This function is not provided in the original file or the modified file
-    # It's assumed to exist as it's called in the original file
-    pass
+# --- 移除多余的 _load_metadata_file 占位符函数 --- #
+# def _load_metadata_file(logger, target_filename=METADATA_FILENAME):
+#     # This function is not provided in the original file or the modified file
+#     # It's assumed to exist as it's called in the original file
+#     pass

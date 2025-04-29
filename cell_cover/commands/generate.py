@@ -37,22 +37,36 @@ from ..utils.file_handler import OUTPUT_DIR
 
 logger = logging.getLogger(__name__)
 
-def call_openai_api(prompt_text: str, concept_key: str = None, logger=None) -> Dict[str, Any]:
+def get_log_func(logger_obj, level="info"):
+    """统一日志记录函数生成，避免重复的 if-else 检查"""
+    if not logger_obj:
+        return print
+    
+    if level == "error":
+        return logger_obj.error
+    elif level == "warning":
+        return logger_obj.warning
+    elif level == "debug":
+        return logger_obj.debug
+    else:
+        return logger_obj.info
+
+def _optimize_prompt(prompt_text: str, concept_key: str = None, logger_obj=None) -> Dict[str, Any]:
     """
     调用OpenAI API来优化提示词文本，并生成完整的概念结构
     
     Args:
         prompt_text: 用户提供的基础文本
         concept_key: 概念键名（可选）
-        logger: 可选的日志记录器
+        logger_obj: 可选的日志记录器
         
     Returns:
         一个字典，包含优化后的概念结构（name, description, midjourney_prompt, variations）
     """
+    # 如果OpenAI不可用，直接返回基本结构
     if not OPENAI_AVAILABLE:
-        log_func = logger.error if logger else print
+        log_func = get_log_func(logger_obj, "error")
         log_func("错误：OpenAI API不可用，请安装openai模块并配置OPENAI_API_KEY")
-        # 返回一个基本结构，确保后续处理不会出错
         return {
             "name": f"Generated: {concept_key}" if concept_key else "Generated Concept",
             "description": prompt_text,
@@ -61,44 +75,38 @@ def call_openai_api(prompt_text: str, concept_key: str = None, logger=None) -> D
         }
     
     try:
-        # 构建元提示词 (完整版)
         meta_prompt = f"""
-Please create a complete concept structure for Midjourney image generation based on the following prompt:
+你是一位富有创意的艺术家，擅长Midjourney提示词撰写。你的任务是根据以下提示创作高质量的视觉描述，确保提示词聚焦一个清晰的焦点点，并参考艺术性示例，如'energetic KTV party with dramatic lighting and emotional connection'，强调构图、灯光和情感深度。
 
+用户输入提示：
 ```
 {prompt_text}
 ```
 
-I need you to generate a complete JSON structure that includes:
+生成一个完整的JSON结构，包括：
+1. 一个有意义的名称（可使用中文，仅简要）。
+2. 一个简单的中文描述，仅概述概念的视觉内容和情感（保持简短）。
+3. 一个高质量的Midjourney提示词，使用英文关键词和短语，构建围绕核心焦点的视觉故事，例如：'vibrant KTV scene, friends circled around singer with neon highlights, capturing joy and dynamic energy'。确保简洁，只包含3-5个关键元素，并融入情感深度如'candid laughter'或'cinematic composition'。
+4. 1-2个变体提示，每个变体微调焦点，如增强灯光效果。
 
-1. A meaningful name for this concept (can be in Chinese)
-2. A detailed description in Chinese that explains the concept
-3. A high-quality Midjourney prompt in English (using keywords and phrases, not full sentences)
-4. 1-2 variations of the main prompt, each with a distinctive focus or style
-
-The format should be exactly as follows:
+JSON格式必须精确：
 
 ```json
 {{
-  "name": "有意义的概念名称（可以使用中文）",
-  "description": "详细的中文描述，解释这个概念的视觉内容和目的",
-  "midjourney_prompt": "High-quality English keywords for Midjourney, focusing on visual elements, style, lighting, perspective, etc.",
+  "name": "有意义的概念名称（中文，简要）",
+  "description": "简单中文概述",
+  "midjourney_prompt": "英文关键词，富有创意和焦点，例如 'neon-glow KTV circle, passionate singing at center with vivid highlights'",
   "variations": {{
-    "variation1_name": "additional keywords or style modifiers to create a variation of the main prompt",
-    "variation2_name": "different set of keywords or style modifiers for another variation"
+    "variation1_name": "变体1关键词，例如 'intensified emotional vibe'",
+    "variation2_name": "变体2关键词，例如 'dramatic light dynamics'"
   }}
 }}
-```
 
-Notes:
-1. The "midjourney_prompt" should be in English, using comma-separated keywords and phrases ideal for Midjourney. Focus on visual elements, artistic style, camera view, lighting, mood, and specific details.
-2. IMPORTANT: Do NOT include ANY Midjourney parameters (like --ar, --v, --q, etc.) in ANY part of your response. These will be added separately by the system.
-3. The "description" must be in Chinese and should be detailed and descriptive.
-4. The variations should offer meaningful alternatives with different focuses or styles.
-5. The variation names should be descriptive of what they emphasize.
-
-Your result must be a valid JSON object matching this exact structure.
-        """
+注意：
+1. Midjourney提示词必须是英文，专注于连贯的视觉艺术故事，如示例。
+2. 不要包括Midjourney参数。
+3. 示例：如果输入是'安静的森林'，则midjourney_prompt应是'mysterious dawn forest, soft light on central trees, serene tranquility with subtle fog'。
+4. 确保输出是有效的JSON对象。\n        """
         
         # 调用API
         response = openai.chat.completions.create(
@@ -117,7 +125,7 @@ Your result must be a valid JSON object matching this exact structure.
         required_keys = ["name", "description", "midjourney_prompt", "variations"]
         if not all(key in result for key in required_keys):
             missing_keys = [key for key in required_keys if key not in result]
-            log_func = logger.warning if logger else print
+            log_func = get_log_func(logger_obj, "warning")
             log_func(f"警告：API返回的JSON缺少必要字段: {missing_keys}")
             # 补充缺失的字段
             for key in missing_keys:
@@ -133,7 +141,7 @@ Your result must be a valid JSON object matching this exact structure.
         return result
         
     except Exception as e:
-        log_func = logger.error if logger else print
+        log_func = get_log_func(logger_obj, "error")
         log_func(f"调用OpenAI API时出错: {str(e)}")
         # 返回一个基本结构，确保后续处理不会出错
         return {
@@ -143,7 +151,63 @@ Your result must be a valid JSON object matching this exact structure.
             "variations": {}
         }
 
-def update_config_with_concept(config_path: str, concept_key: str, concept_data: Dict[str, Any], logger=None) -> bool:
+def _clean_midjourney_params(text: str) -> str:
+    """清理文本中可能包含的Midjourney参数"""
+    if not text:
+        return ""
+    # 移除所有以 "--" 开头的参数及其值
+    cleaned = re.sub(r'--\w+\s+[^\s]+', '', text).strip()
+    # 确保没有多余的空格
+    return re.sub(r'\s+', ' ', cleaned).strip()
+
+def _build_final_prompt(core_prompt: str, params: List[str]) -> str:
+    """构建最终提示词，包含核心提示词和参数"""
+    if not params:
+        return core_prompt
+    return f"{core_prompt} {' '.join(params)}"
+
+def _get_params_from_config(config: Dict[str, Any], aspect: str, quality: str, 
+                           version: str, style: Optional[List[str]], cref: Optional[str]) -> List[str]:
+    """从配置中收集参数"""
+    params = []
+    
+    # 附加cref（如果提供）
+    if cref:
+        params.append(f"--cref {cref}")
+    
+    # 附加aspect_ratio, quality, version参数
+    aspect_ratios = config.get("aspect_ratios", {})
+    quality_settings = config.get("quality_settings", {})
+    style_versions = config.get("style_versions", {})
+    
+    aspect_ratio = aspect_ratios.get(aspect)
+    quality_setting = quality_settings.get(quality)
+    version_setting = style_versions.get(version)
+    
+    if aspect_ratio: params.append(aspect_ratio)
+    if quality_setting: params.append(quality_setting)
+    if version_setting: params.append(version_setting)
+    
+    # 附加style参数（从global_styles中查找）
+    if style:
+        global_styles = config.get("global_styles", {})
+        # 处理 style: 如果在 global_styles 中找不到，则直接使用 style key 本身
+        style_params = [global_styles.get(s, s) for s in style]
+        params.extend(style_params)
+    
+    return params
+
+def _clean_variations(variations: Dict[str, str]) -> Dict[str, str]:
+    """清理变体提示词中的参数"""
+    if not variations or not isinstance(variations, dict):
+        return {}
+        
+    cleaned_variations = {}
+    for var_name, var_prompt in variations.items():
+        cleaned_variations[var_name] = _clean_midjourney_params(var_prompt)
+    return cleaned_variations
+
+def update_config_with_concept(config_path: str, concept_key: str, concept_data: Dict[str, Any], logger_obj=None) -> bool:
     """
     更新或创建prompts_config.json中的概念
     
@@ -151,7 +215,7 @@ def update_config_with_concept(config_path: str, concept_key: str, concept_data:
         config_path: 配置文件路径
         concept_key: 概念键
         concept_data: 包含name, description, midjourney_prompt和variations的字典
-        logger: 可选的日志记录器
+        logger_obj: 可选的日志记录器
         
     Returns:
         是否成功更新/创建
@@ -201,13 +265,31 @@ def update_config_with_concept(config_path: str, concept_key: str, concept_data:
         with open(config_file, 'w', encoding='utf-8') as f:
             json.dump(config_data, f, ensure_ascii=False, indent=2)
             
-        log_func = logger.info if logger else print
+        log_func = get_log_func(logger_obj)
         log_func(f"概念 '{concept_key}' {action}")
         return True
         
     except Exception as e:
-        log_func = logger.error if logger else print
+        log_func = get_log_func(logger_obj, "error")
         log_func(f"更新配置文件时出错: {str(e)}")
+        return False
+
+def _save_prompt_to_file(logger_obj, output_dir: str, prompt: str, concept: Optional[str]) -> bool:
+    """保存提示词到文件"""
+    if not output_dir:
+        output_dir = OUTPUT_DIR
+    
+    # 使用concept键名或时间戳创建文件名
+    filename_base = concept if concept else f"prompt_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    save_success = save_text_prompt(logger_obj, output_dir, prompt, filename_base)
+    
+    log_func = get_log_func(logger_obj)
+    if save_success:
+        log_func(f"提示词已保存到文件: {filename_base}.txt")
+        return True
+    else:
+        error_log = get_log_func(logger_obj, "error")
+        error_log(f"无法保存提示词文件: {filename_base}.txt")
         return False
 
 def handle_generate(
@@ -223,146 +305,72 @@ def handle_generate(
     cref: Optional[str] = None,
     clipboard: bool = False,
     save_prompt: bool = False,
+    cwd: Optional[str] = None,
+    output_dir: Optional[str] = None
 ):
     """处理 'generate' 命令，使用OpenAI API优化提示词并附加参数。"""
-    # 添加调试日志，确认传入的 config
-    if logger:
-        logger.debug(f"Entering handle_generate. Config type: {type(config)}, Keys: {list(config.keys()) if isinstance(config, dict) else 'N/A'}")
-        logger.debug(f"Received prompt: {prompt}, concept: {concept}")
-
-    # 参数检查 (确保 config 和 logger 不是 None)
+    # 简化参数检查
     if config is None:
-        print("FATAL ERROR: Config object is None in handle_generate.")
-        # 尝试使用全局 logger 或 print 记录错误
-        if logger:
-            logger.critical("Config object is None!")
-        return 1 # 返回错误码
-
-    if logger is None:
-        print("WARNING: Logger object is None in handle_generate.")
-        # 可以选择创建一个默认 logger 或继续，但日志会丢失
-
-    log_func = logger.info if logger else print # 确保 log_func 安全
-
+        print("错误: 配置对象为空")
+        return 1
+    
     if not prompt:
-        error_log_func = logger.error if logger else print
-        error_log_func("错误：使用 'generate' 命令时，必须提供 --prompt 参数。")
-        return 1  # 返回错误码
+        error_log = get_log_func(logger, "error")
+        error_log("错误：使用 'generate' 命令时，必须提供 --prompt 参数。")
+        return 1
     
-    # 1. 通过OpenAI API优化提示词文本和生成完整概念结构
-    concept_data = call_openai_api(prompt, concept, logger)
+    # 1. 优化提示词
+    concept_data = _optimize_prompt(prompt, concept, logger)
     
-    # 去除 midjourney_prompt 中可能已存在的参数
-    core_prompt_text = concept_data.get("midjourney_prompt", prompt)
-    # 检测并移除 midjourney_prompt 中可能包含的参数
-    if core_prompt_text:
-        # 移除所有以 "--" 开头的参数及其值
-        core_prompt_text = re.sub(r'--\w+\s+[^\s]+', '', core_prompt_text).strip()
-        # 确保没有多余的空格
-        core_prompt_text = re.sub(r'\s+', ' ', core_prompt_text).strip()
-        # 更新回 concept_data
-        concept_data["midjourney_prompt"] = core_prompt_text
+    # 2. 清理提示词中的参数
+    core_prompt_text = _clean_midjourney_params(concept_data.get("midjourney_prompt", prompt))
+    concept_data["midjourney_prompt"] = core_prompt_text
     
-    # 2. 收集并附加参数
-    params_to_append = []
+    # 3. 收集参数并构建完整提示词
+    params = _get_params_from_config(config, aspect, quality, version, style, cref)
+    final_prompt = _build_final_prompt(core_prompt_text, params)
     
-    # 附加cref（如果提供）
-    if cref:
-        params_to_append.append(f"--cref {cref}")
+    # 4. 清理变体提示词
+    concept_data["variations"] = _clean_variations(concept_data.get("variations", {}))
     
-    # 附加aspect_ratio, quality, version参数 (现在 config 应该有值了)
-    aspect_ratios = config.get("aspect_ratios", {})
-    quality_settings = config.get("quality_settings", {})
-    style_versions = config.get("style_versions", {})
-    
-    aspect_ratio = aspect_ratios.get(aspect)
-    quality_setting = quality_settings.get(quality)
-    version_setting = style_versions.get(version)
-    
-    if aspect_ratio: params_to_append.append(aspect_ratio)
-    if quality_setting: params_to_append.append(quality_setting)
-    if version_setting: params_to_append.append(version_setting)
-    
-    # 附加style参数（从global_styles中查找）
-    if style:
-        global_styles = config.get("global_styles", {})
-        # 处理 style: 如果在 global_styles 中找不到，则直接使用 style key 本身
-        style_params = [global_styles.get(s, s) for s in style]
-        params_to_append.extend(style_params)
-    
-    # 3. 组合最终提示词（仅用于显示和剪贴板）
-    final_prompt = core_prompt_text
-    if params_to_append:
-        final_prompt += " " + " ".join(params_to_append)
-    
-    # 处理 variations 中可能存在的参数
-    if "variations" in concept_data and isinstance(concept_data["variations"], dict):
-        cleaned_variations = {}
-        for var_name, var_prompt in concept_data["variations"].items():
-            # 清理变体提示词中的参数
-            cleaned_var_prompt = re.sub(r'--\w+\s+[^\s]+', '', var_prompt).strip()
-            cleaned_var_prompt = re.sub(r'\s+', ' ', cleaned_var_prompt).strip()
-            cleaned_variations[var_name] = cleaned_var_prompt
-        concept_data["variations"] = cleaned_variations
-    
-    # 注意：此处不更新 concept_data["midjourney_prompt"]，保持其仅包含核心提示词
-    # concept_data 中保存的是不带参数的核心提示词
-    # final_prompt 变量用于显示和剪贴板，包含完整提示词（核心+参数）
-    
-    # 4. 输出最终提示词和概念结构信息
-    print(f'''Generated Concept:
-Name: {concept_data.get("name", "N/A")}
-Description: {concept_data.get("description", "N/A")}
+    # 5. 输出结果
+    print(f'''生成的概念:
+名称: {concept_data.get("name", "N/A")}
+描述: {concept_data.get("description", "N/A")}
 
-Core Midjourney Prompt (without parameters):
+核心Midjourney提示词（不含参数）:
 ---
 {core_prompt_text}
 ---
 
-Full Midjourney Prompt (with parameters):
+完整Midjourney提示词（含参数）:
 ---
 {final_prompt}
 ---
 
-Variations: {len(concept_data.get("variations", {}))} variation(s)''')
+变体数量: {len(concept_data.get("variations", {}))}个''')
     
-    # 5. 处理剪贴板复制 (复制带参数的完整提示词)
-    if clipboard:
-        if PYPERCLIP_AVAILABLE:
-            copy_to_clipboard(logger, final_prompt)
-            log_func("提示词已复制到剪贴板。")
-        else:
-            warn_log_func = logger.warning if logger else print
-            warn_log_func("警告：Pyperclip 模块不可用，无法复制到剪贴板。")
+    # 6. 处理剪贴板复制
+    if clipboard and PYPERCLIP_AVAILABLE:
+        copy_to_clipboard(logger, final_prompt)
+        info_log = get_log_func(logger)
+        info_log("提示词已复制到剪贴板。")
+    elif clipboard:
+        warn_log = get_log_func(logger, "warning")
+        warn_log("警告：Pyperclip 模块不可用，无法复制到剪贴板。")
     
-    # 6. 处理概念持久化
+    # 7. 持久化概念（如果提供）
     if concept:
-        # 确定配置文件路径
         config_dir = Path(__file__).parent.parent  # cell_cover目录
         config_path = config_dir / "prompts_config.json"
         
-        success = update_config_with_concept(
-            str(config_path),
-            concept,
-            concept_data,  # 保存不带参数的核心提示词
-            logger
-        )
-        
-        if not success:
-            error_log_func = logger.error if logger else print
-            error_log_func(f"无法将提示词保存到概念: {concept}")
+        if not update_config_with_concept(str(config_path), concept, concept_data, logger):
+            error_log = get_log_func(logger, "error")
+            error_log(f"无法将提示词保存到概念: {concept}")
     
-    # 7. 处理提示词文件保存 (保存带参数的完整提示词)
+    # 8. 保存提示词到文件
     if save_prompt:
-        # 使用concept键名或时间戳创建文件名
-        filename_base = concept if concept else f"prompt_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        save_success = save_text_prompt(logger, OUTPUT_DIR, final_prompt, filename_base)
-        
-        if save_success:
-            log_func(f"提示词已保存到文件: {filename_base}.txt")
-        else:
-            error_log_func = logger.error if logger else print
-            error_log_func(f"无法保存提示词文件: {filename_base}.txt")
-            return 1  # 失败时返回错误码
+        if not _save_prompt_to_file(logger, output_dir, final_prompt, concept):
+            return 1
     
     return 0  # 成功返回

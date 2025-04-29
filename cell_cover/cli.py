@@ -4,6 +4,7 @@
 import os
 import sys
 import typer
+import json
 
 import logging
 try:
@@ -13,16 +14,14 @@ try:
     dotenv_path = os.path.join(project_root, '.env')
     if os.path.exists(dotenv_path):
         loaded = load_dotenv(dotenv_path=dotenv_path)
-        if loaded:
-            # print(f"DEBUG [cli.py]: Successfully loaded .env from: {dotenv_path}")
-            openai_key_cli = os.getenv("OPENAI_API_KEY")
-            ttapi_key_cli = os.getenv("TTAPI_API_KEY")
-            # print(f"DEBUG [cli.py]: OPENAI_API_KEY after load: {'SET' if openai_key_cli else 'NOT SET'}")
-            # print(f"DEBUG [cli.py]: TTAPI_API_KEY after load: {'SET' if ttapi_key_cli else 'NOT SET'}")
-        else:
-             print(f"DEBUG [cli.py]: load_dotenv called but reported failure for: {dotenv_path}")
+        # if loaded:  # 评论掉调试打印
+        #     print(f"DEBUG [cli.py]: Successfully loaded .env from: {dotenv_path}")
+        openai_key_cli = os.getenv("OPENAI_API_KEY")
+        ttapi_key_cli = os.getenv("TTAPI_API_KEY")
+        # print(f"DEBUG [cli.py]: OPENAI_API_KEY after load: {'SET' if openai_key_cli else 'NOT SET'}")
+        # print(f"DEBUG [cli.py]: TTAPI_API_KEY after load: {'SET' if ttapi_key_cli else 'NOT SET'}")
     else:
-        print(f"DEBUG [cli.py]: .env file not found at: {dotenv_path}")
+        # print(f"DEBUG [cli.py]: .env file not found at: {dotenv_path}")  # 评论掉
         pass # 如果没有 .env 文件，继续执行，依赖于已设置的环境变量
 except ImportError:
     logging.warning("dotenv 模块未安装，请运行 pip install python-dotenv")
@@ -32,6 +31,7 @@ from typing import Optional, List
 from .utils.config import load_config, get_api_key
 from .utils.log import setup_logging
 from .utils.filesystem_utils import check_and_create_directories, read_last_job_id, write_last_job_id, read_last_succeed_job_id
+from .constants import ACTION_CHOICES, ACTION_DESCRIPTIONS
 
 from .commands.create import handle_create
 from .commands.generate import handle_generate
@@ -43,6 +43,7 @@ from .commands.select import handle_select
 from .commands.view import handle_view
 from .commands.action import handle_action
 from .commands.list_tasks import handle_list_tasks
+from .commands.sync import handle_sync # Import handle_sync
 
 app = typer.Typer(
     no_args_is_help=True,
@@ -50,55 +51,155 @@ app = typer.Typer(
 )
 CELL_COVER_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Define available actions and their descriptions globally
-ACTION_CHOICES = [
-    "variation1", "variation2", "variation3", "variation4", 
-    "upsample1", "upsample2", "upsample3", "upsample4",
-    "reroll", "zoom_out_1.5", "zoom_out_2", 
-    "pan_up", "pan_down", "pan_left", "pan_right"
-]
-
-ACTION_DESCRIPTIONS = {
-    "variation1": "Create variation 1",
-    "variation2": "Create variation 2",
-    "variation3": "Create variation 3",
-    "variation4": "Create variation 4",
-    "upsample1": "Upscale image 1",
-    "upsample2": "Upscale image 2",
-    "upsample3": "Upscale image 3",
-    "upsample4": "Upscale image 4",
-    "reroll": "Reroll the job",
-    "zoom_out_1.5": "Zoom out 1.5x",
-    "zoom_out_2": "Zoom out 2x",
-    "pan_up": "Pan image up",
-    "pan_down": "Pan image down",
-    "pan_left": "Pan image left",
-    "pan_right": "Pan image right",
-    # Add more descriptions as needed
-}
-
 def common_setup(verbose: bool):
-    logger = setup_logging(CELL_COVER_DIR, verbose)
-    config_path = os.path.join(CELL_COVER_DIR, 'prompts_config.json')
-    config = load_config(logger, config_path)
-    if not config:
-        logger.critical("无法加载配置文件")
-        raise typer.Exit(code=1)
-    if not check_and_create_directories(logger):
-        logger.critical("无法创建必要目录")
-        raise typer.Exit(code=1)
-    return logger, config
+    """执行通用的设置步骤，初始化日志、配置和基于用户主目录的目录。
+
+    Returns:
+        Tuple[logging.Logger, dict, str, str, str, str]: 
+            logger, config, cwd, crc_base_dir, state_dir, output_dir
+    """
+    try:
+        # Get current working directory
+        cwd = os.getcwd()
+
+        # 获取用户主目录
+        home_dir = os.path.expanduser("~")
+        
+        # --- Define and ensure home-based directories ---
+        crc_base_dir = os.path.join(home_dir, '.crc') # 放在用户主目录下
+        log_dir = os.path.join(crc_base_dir, 'logs')
+        state_dir = os.path.join(crc_base_dir, 'state')
+        metadata_dir = os.path.join(crc_base_dir, 'metadata')
+        
+        # 检查是否已初始化
+        if not os.path.exists(crc_base_dir):
+            print(f"错误：未找到 .crc 目录，请先运行 'crc init' 初始化必要的目录。")
+            raise typer.Exit(code=1)
+
+        # Create essential directories first (log and state)
+        try:
+            os.makedirs(log_dir, exist_ok=True)
+            os.makedirs(state_dir, exist_ok=True) # Ensure state dir exists for job IDs etc.
+            os.makedirs(metadata_dir, exist_ok=True) # Ensure metadata dir exists
+        except OSError as e:
+             # Use a temporary basic logger or print if full logger setup fails
+             print(f"FATAL: Cannot create essential directories {log_dir} or {state_dir}: {e}")
+             sys.exit(1) # Exit if we can't create essential dirs
+
+        # --- Setup logging relative to home dir ---
+        # Assuming setup_logging accepts log_dir and verbose flag
+        logger = setup_logging(log_dir=log_dir, verbose=verbose)
+        logger.debug(f"Current working directory (CWD): {cwd}")
+        logger.debug(f"CRC base directory: {crc_base_dir}")
+        logger.debug(f"Log directory: {log_dir}")
+        logger.debug(f"State directory: {state_dir}")
+        logger.debug(f"Metadata directory: {metadata_dir}")
+
+        # --- Load config: default from install dir, override/merge with CWD config ---
+        default_config_path = os.path.join(CELL_COVER_DIR, 'prompts_config.json')
+        local_config_path = os.path.join(cwd, 'prompts_config.json') # Config in CWD
+        logger.debug(f"Default config path: {default_config_path}")
+        logger.debug(f"Local config path (override): {local_config_path}")
+
+        # Assuming load_config is modified/designed to check local_config_path and merge/override
+        config = load_config(logger, default_config_path, local_config_path)
+        if config is None: # load_config should return None on critical failure
+            logger.critical("无法加载必要的配置文件。请检查默认配置是否存在且格式正确。")
+            # Logger might not be fully set up, so print as well
+            print("错误：无法加载必要的配置文件。请检查默认配置是否存在且格式正确。")
+            raise typer.Exit(code=1)
+        logger.info("配置文件加载完成。")
+
+        # 获取用户指定的 output 目录，如果未指定则使用默认目录
+        try:
+            with open(os.path.join(state_dir, 'config.json'), 'r') as f:
+                import json
+                user_config = json.load(f)
+                output_dir = user_config.get('output_dir', os.path.join(crc_base_dir, 'output'))
+        except (FileNotFoundError, json.JSONDecodeError):
+            # 如果文件不存在或解析失败，使用默认值
+            output_dir = os.path.join(crc_base_dir, 'output')
+            
+        # 确保 output 目录存在
+        os.makedirs(output_dir, exist_ok=True)
+        logger.debug(f"Output directory: {output_dir}")
+
+        # Return logger, config, CWD, base dir, state dir, and output dir
+        return logger, config, cwd, crc_base_dir, state_dir, output_dir
+    except Exception as e:
+        print(f"错误：设置失败，原因: {str(e)}")  # 简化错误输出
+        sys.exit(1)
+
+@app.command()
+def init(
+    output_dir: Optional[str] = typer.Option(None, "--output-dir", "-o", help="指定输出目录路径，默认在用户主目录下的 .crc/output"),
+    force: bool = typer.Option(False, "--force", "-f", help="强制重新初始化，覆盖现有设置")
+):
+    """初始化必要的目录结构，设置输出路径。"""
+    
+    # 获取用户主目录
+    home_dir = os.path.expanduser("~")
+    
+    # 创建 .crc 目录结构
+    crc_base_dir = os.path.join(home_dir, '.crc')
+    log_dir = os.path.join(crc_base_dir, 'logs')
+    state_dir = os.path.join(crc_base_dir, 'state')
+    metadata_dir = os.path.join(crc_base_dir, 'metadata')
+    
+    # 检查是否已初始化且不是强制模式
+    if os.path.exists(crc_base_dir) and not force:
+        print(f"警告：.crc 目录已存在于 {crc_base_dir}。若要重新初始化，请使用 --force 选项。")
+        return 0
+    
+    # 创建目录结构
+    try:
+        os.makedirs(crc_base_dir, exist_ok=True)
+        os.makedirs(log_dir, exist_ok=True)
+        os.makedirs(state_dir, exist_ok=True)
+        os.makedirs(metadata_dir, exist_ok=True)
+        
+        # 如果未指定输出目录，使用默认路径
+        if not output_dir:
+            output_dir = os.path.join(crc_base_dir, 'output')
+        
+        # 确保输出目录存在
+        os.makedirs(output_dir, exist_ok=True)
+        
+        # 创建空的 images_metadata.json 文件
+        metadata_file = os.path.join(metadata_dir, 'images_metadata.json')
+        if not os.path.exists(metadata_file) or force:
+            with open(metadata_file, 'w') as f:
+                json.dump({"images": [], "version": "1.0"}, f, indent=4, ensure_ascii=False)
+            print(f"  已创建元数据文件: {metadata_file}")
+        
+        # 保存用户配置
+        with open(os.path.join(state_dir, 'config.json'), 'w') as f:
+            json.dump({'output_dir': output_dir}, f)
+            
+        print(f"初始化成功！")
+        print(f"  基本目录: {crc_base_dir}")
+        print(f"  日志目录: {log_dir}")
+        print(f"  状态目录: {state_dir}")
+        print(f"  元数据目录: {metadata_dir}")
+        print(f"  输出目录: {output_dir}")
+        return 0
+        
+    except Exception as e:
+        print(f"错误：初始化失败，原因：{str(e)}")
+        return 1
 
 @app.command()
 def list_concepts(verbose: bool = False):
     """List available creative concepts."""
-    logger, config = common_setup(verbose)
+    # Update call to unpack new return values
+    logger, config, _, _, _, _ = common_setup(verbose)
     handle_list_concepts(config)
 
 @app.command()
 def variations(concept_key: str, verbose: bool = False):
     """List available variations for a specific concept."""
-    logger, config = common_setup(verbose)
+    # Update call to unpack new return values
+    logger, config, _, _, _, _ = common_setup(verbose)
     class Args: pass
     args = Args()
     args.concept_key = concept_key
@@ -111,7 +212,7 @@ def generate(
     prompt: Optional[str] = typer.Option(None, "--prompt", "-p"),
     variation: Optional[List[str]] = typer.Option(None, "--variation", "-var"),
     aspect: str = typer.Option("cover", "--aspect", "-ar"),
-    quality: str = typer.Option("standard", "--quality", "-q"),
+    quality: str = typer.Option("high", "--quality", "-q"),
     version: str = typer.Option("v6", "--version", "-ver"),
     cref: Optional[str] = None,
     style: Optional[List[str]] = None,
@@ -120,7 +221,8 @@ def generate(
     verbose: bool = False
 ):
     """Generate only the Midjourney prompt text (does not submit)."""
-    logger, config = common_setup(verbose)
+    # Update call to unpack new return values
+    logger, config, cwd, _, _, output_dir = common_setup(verbose) # Get cwd, output_dir
     class Args: pass
     args = Args()
     args.concept = concept
@@ -146,7 +248,9 @@ def generate(
         clipboard=args.clipboard,
         save_prompt=args.save_prompt,
         config=config,
-        logger=logger
+        logger=logger,
+        cwd=cwd, # Pass cwd
+        output_dir=output_dir # Pass output_dir if needed for saving prompts
     )
 
 @app.command()
@@ -167,13 +271,15 @@ def create(
     verbose: bool = False
 ):
     """Create a new Midjourney image generation task."""
-    logger, config = common_setup(verbose)
+    # Update call to unpack new return values
+    logger, config, cwd, _, state_dir, _ = common_setup(verbose) # Get cwd, state_dir
     api_key = get_api_key(logger)
     if not api_key:
-        logger.critical("create 命令需要 API 密钥")
+        logger.critical("create 命令需要 TTAPI API 密钥")
+        print("错误: create 命令需要 TTAPI API 密钥 (请设置 TTAPI_API_KEY 或在 .env 中配置)")
         raise typer.Exit(code=1)
     
-    # 直接传递参数，不再使用 Args 类
+    # Pass cwd and state_dir
     handle_create(
         config=config,
         logger=logger,
@@ -190,7 +296,9 @@ def create(
         clipboard=clipboard,
         save_prompt=save_prompt,
         hook_url=hook_url,
-        notify_id=notify_id
+        notify_id=notify_id,
+        cwd=cwd, # Pass cwd
+        state_dir=state_dir # Pass state_dir for writing job IDs
     )
 
 @app.command()
@@ -201,10 +309,12 @@ def recreate(
     verbose: bool = False
 ):
     """Recreate an image using a previous job's prompt and seed."""
-    logger, config = common_setup(verbose)
+    # Update call to unpack new return values
+    logger, config, cwd, _, state_dir, metadata_dir = common_setup(verbose) # Get cwd, state_dir, metadata_dir
     api_key = get_api_key(logger)
     if not api_key:
-        logger.critical("recreate 命令需要 API 密钥")
+        logger.critical("recreate 命令需要 TTAPI API 密钥")
+        print("错误: recreate 命令需要 TTAPI API 密钥 (请设置 TTAPI_API_KEY 或在 .env 中配置)")
         raise typer.Exit(code=1)
     class Args: pass
     args = Args()
@@ -212,72 +322,76 @@ def recreate(
     args.hook_url = hook_url
     args.cref = cref
     args.verbose = verbose
-    handle_recreate(args, config, logger, api_key)
+    # Pass relevant paths
+    handle_recreate(
+        args=args,
+        config=config,
+        logger=logger,
+        api_key=api_key,
+        cwd=cwd, # Pass cwd
+        state_dir=state_dir, # Pass state_dir for writing job IDs
+        metadata_dir=metadata_dir # Pass metadata_dir for finding old task info
+    )
 
 @app.command()
 def select(
     identifier: Optional[str] = typer.Argument(None, help="要处理的任务的 Job ID 或其他标识符 (默认: 最近成功任务)"),
     select_parts: List[str] = typer.Option(..., "--select", "-s", help="选择要保存的部分 (例如 u1 u3)", rich_help_panel="Required", show_default=False, metavar="PARTS"),
-    output_dir: Optional[str] = typer.Option(None, help="指定输出目录 (默认与原图相同)"),
+    output_dir: Optional[str] = typer.Option(None, help="指定输出目录 (默认: 当前目录下的 .crc/output/<job_id>/select)"),
     verbose: bool = False
 ):
     """Split a 4-grid image (from upscale) and save selected parts."""
-    logger, _ = common_setup(verbose)
-    
-    # --- Determine the target job ID ---
-    target_job_id = None
-    if identifier:
-        # TODO: Add logic here to potentially resolve identifier prefixes if needed
-        target_job_id = identifier 
-        logger.info(f"使用提供的标识符: {target_job_id}")
-    else:
-        # Default behavior: use last successful job
-        target_job_id = read_last_succeed_job_id(logger)
-        if not target_job_id:
-            logger.error("未提供标识符，且无法找到最近成功的任务 ID。请先成功运行一个任务或提供一个标识符。")
-            raise typer.Exit(code=1)
-        logger.info(f"未提供标识符，使用最近成功任务 ID: {target_job_id}")
+    # Update call to unpack new return values
+    logger, config, cwd, crc_base_dir, state_dir, default_output_base = common_setup(verbose) # Get cwd, state_dir, default output base
+    metadata_dir = os.path.join(crc_base_dir, 'metadata')
 
-    # --- Prepare args for handle_select ---
-    # Assuming handle_select can work with job_id passed via args
-    class Args: pass 
-    args = Args()
-    args.job_id = target_job_id # Adding job_id to args
-    args.select = select_parts  # Pass the selected parts (renamed variable)
-    args.output_dir = output_dir
-    args.verbose = verbose
-    
-    # handle_select function needs to be adapted to use args.job_id
-    handle_select(args, logger)
-
-@app.command()
-def view(
-    identifier: Optional[str] = None,
-    last_job: bool = False,
-    last_succeed: bool = False,
-    remote: bool = False,
-    local_only: bool = False,
-    save: bool = False,
-    history: bool = False,
-    verbose: bool = False
-):
-    """View details of a specific task (local metadata and API status)."""
-    logger, _ = common_setup(verbose)
-    api_key = get_api_key(logger)
-    if not api_key:
-        logger.critical("view 命令需要 API 密钥")
-        raise typer.Exit(code=1)
     class Args: pass
     args = Args()
     args.identifier = identifier
-    args.last_job = last_job
-    args.last_succeed = last_succeed
-    args.remote = remote
-    args.local_only = local_only
-    args.save = save
-    args.history = history
+    args.select_parts = select_parts
+    args.output_dir = output_dir # User-provided output dir
     args.verbose = verbose
-    handle_view(args, logger, api_key)
+
+    # Pass relevant paths to handler
+    handle_select(
+        args=args,
+        logger=logger,
+        cwd=cwd,
+        state_dir=state_dir,
+        default_output_base=default_output_base,
+        metadata_dir=metadata_dir
+    )
+
+@app.command()
+def view(
+    identifier: Optional[str] = typer.Option(None, "--identifier", "-i", help="要查看的任务的 Job ID 或其他标识符 (默认: 最近成功任务)"),
+    last_job: bool = typer.Option(False, "--last-job", help="使用上一个任务"),
+    last_succeed: bool = typer.Option(False, "--last-succeed", help="使用上一个成功任务"),
+    remote: bool = typer.Option(False, "--remote", help="从远程获取信息"),
+    local_only: bool = typer.Option(False, "--local-only", help="仅使用本地信息"),
+    save: bool = typer.Option(False, "--save", help="保存从远程获取的信息"),
+    history: bool = typer.Option(False, "--history", help="查看历史记录"),
+    verbose: bool = typer.Option(False, "--verbose", help="显示详细输出")
+):
+    """View an image or task metadata (local or remote)."""
+    logger, config, cwd, crc_base_dir, state_dir, output_dir = common_setup(verbose)
+    api_key = get_api_key(logger) if remote or history else None
+    
+    # 计算元数据目录路径
+    metadata_dir = os.path.join(crc_base_dir, 'metadata')
+    
+    handle_view(
+        identifier=identifier,
+        last_job=last_job,
+        last_succeed=last_succeed,
+        remote=remote,
+        local_only=local_only,
+        save=save,
+        history=history,
+        verbose=verbose,
+        metadata_dir=metadata_dir,
+        state_dir=state_dir  # 添加 state_dir 参数
+    )
 
 @app.command()
 def blend(
@@ -287,12 +401,15 @@ def blend(
     interactive: bool = False,
     verbose: bool = False
 ):
-    """Blend 2 to 5 images to create a new image."""
-    logger, config = common_setup(verbose)
-    api_key = get_api_key(logger)
+    """Blend up to 3 images (local files or task results)."""
+    # Update call to unpack new return values
+    logger, config, cwd, crc_base_dir, state_dir, _ = common_setup(verbose)
+    api_key = get_api_key(logger) # Blending might involve API call
     if not api_key:
-        logger.critical("blend 命令需要 API 密钥")
+        logger.critical("blend 命令需要 TTAPI API 密钥")
+        print("错误: blend 命令需要 TTAPI API 密钥 (请设置 TTAPI_API_KEY 或在 .env 中配置)")
         raise typer.Exit(code=1)
+
     class Args: pass
     args = Args()
     args.identifiers = identifiers
@@ -300,7 +417,16 @@ def blend(
     args.weights = weights
     args.interactive = interactive
     args.verbose = verbose
-    handle_blend(args, config, logger, api_key)
+
+    # Pass necessary paths
+    handle_blend(
+        args=args,
+        logger=logger,
+        api_key=api_key,
+        cwd=cwd,
+        crc_base_dir=crc_base_dir, # For finding task images/metadata
+        state_dir=state_dir # For resolving task IDs if needed
+    )
 
 @app.command()
 def describe(
@@ -313,12 +439,11 @@ def describe(
     language: Optional[str] = None,
     verbose: bool = False
 ):
-    """Generate prompt suggestions based on an input image."""
-    logger, _ = common_setup(verbose)
-    api_key = get_api_key(logger)
-    if not api_key:
-        logger.critical("describe 命令需要 API 密钥")
-        raise typer.Exit(code=1)
+    """Describe an image using OpenAI CLIP or local task metadata."""
+    # Update call to unpack new return values
+    logger, config, cwd, crc_base_dir, state_dir, output_dir = common_setup(verbose)
+    openai_api_key = get_api_key(logger, service="openai") # Need OpenAI key for describe
+
     class Args: pass
     args = Args()
     args.identifier = identifier
@@ -329,7 +454,17 @@ def describe(
     args.save = save
     args.language = language
     args.verbose = verbose
-    handle_describe(args, logger, api_key)
+
+    # Pass necessary paths and keys
+    handle_describe(
+        args=args,
+        logger=logger,
+        openai_api_key=openai_api_key,
+        cwd=cwd,
+        crc_base_dir=crc_base_dir, # For finding task images/metadata
+        state_dir=state_dir, # For resolving task IDs
+        output_dir=output_dir # For saving description
+    )
 
 @app.command("list-tasks")
 def list_tasks(
@@ -338,43 +473,76 @@ def list_tasks(
     limit: int = typer.Option(None, "--limit", "-l", help="Limit the number of tasks displayed"),
     sort_by: str = typer.Option("created_at", "--sort", help="Field to sort by (e.g., 'created_at', 'status')"),
     ascending: bool = typer.Option(False, "--asc", help="Sort in ascending order"),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show verbose output including full prompts")
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show verbose output including full prompts"),
+    remote: bool = typer.Option(False, "--remote", "-r", help="Get tasks from remote API instead of local metadata")
 ):
-    """List existing generation tasks."""
-    logger = setup_logging(CELL_COVER_DIR, verbose)
-    logger.debug("Executing list-tasks command")
-    # 直接将 typer 解析的参数传递给处理函数
-    # 注意：需要确保 handle_list_tasks 的参数签名与这里一致或能接受一个包含这些属性的对象
-    # 为了简单起见，我们创建一个命名空间对象来模拟之前的 args 结构
-    # 或者修改 handle_list_tasks 以直接接受这些关键字参数
-    from argparse import Namespace
-    args = Namespace(
+    """List and filter tasks based on local metadata."""
+    # Update call to unpack new return values
+    logger, config, cwd, crc_base_dir, state_dir, _ = common_setup(verbose)
+    
+    # 如果remote为True，需要获取API密钥
+    api_key = None
+    if remote:
+        api_key = get_api_key(logger)
+        if not api_key:
+            logger.critical("remote模式需要TTAPI API密钥")
+            print("错误: 使用--remote选项需要TTAPI API密钥 (请设置TTAPI_API_KEY或在.env中配置)")
+            raise typer.Exit(code=1)
+
+    # Pass necessary paths
+    handle_list_tasks(
         status=status,
         concept=concept,
         limit=limit,
         sort_by=sort_by,
         ascending=ascending,
-        verbose=verbose
+        verbose=verbose,
+        logger=logger,
+        crc_base_dir=crc_base_dir, # Pass base dir for finding metadata
+        remote=remote,
+        api_key=api_key
     )
-    handle_list_tasks(args, logger)
 
-# 为 "list" 创建别名命令
-@app.command("list")
+@app.command("list") # Alias for list-tasks
 def list_alias(
     status: str = typer.Option(None, "--status", "-s", help="Filter tasks by status (e.g., 'completed', 'pending')"),
     concept: str = typer.Option(None, "--concept", "-c", help="Filter tasks by concept ID"),
     limit: int = typer.Option(None, "--limit", "-l", help="Limit the number of tasks displayed"),
     sort_by: str = typer.Option("created_at", "--sort", help="Field to sort by (e.g., 'created_at', 'status')"),
     ascending: bool = typer.Option(False, "--asc", help="Sort in ascending order"),
-    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show verbose output including full prompts")
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Show verbose output including full prompts"),
+    remote: bool = typer.Option(False, "--remote", "-r", help="Get tasks from remote API instead of local metadata")
 ):
-    """Alias for the 'list-tasks' command."""
-    # 直接调用 list_tasks 的逻辑
-    list_tasks(status=status, concept=concept, limit=limit, sort_by=sort_by, ascending=ascending, verbose=verbose)
+    """Alias for list-tasks."""
+    # Update call to unpack new return values
+    logger, config, cwd, crc_base_dir, state_dir, _ = common_setup(verbose)
+
+    # 如果remote为True，需要获取API密钥
+    api_key = None
+    if remote:
+        api_key = get_api_key(logger)
+        if not api_key:
+            logger.critical("remote模式需要TTAPI API密钥")
+            print("错误: 使用--remote选项需要TTAPI API密钥 (请设置TTAPI_API_KEY或在.env中配置)")
+            raise typer.Exit(code=1)
+
+    # Pass necessary paths
+    handle_list_tasks(
+        status=status,
+        concept=concept,
+        limit=limit,
+        sort_by=sort_by,
+        ascending=ascending,
+        verbose=verbose,
+        logger=logger,
+        crc_base_dir=crc_base_dir, # Pass base dir for finding metadata
+        remote=remote,
+        api_key=api_key
+    )
 
 @app.command()
 def action(
-    action_code: Optional[str] = typer.Argument(None, help='要应用的操作，例如 "variation1"'),
+    action_code: Optional[str] = typer.Argument(None, help=f'要应用的操作代码. 可用: {", ".join(ACTION_CHOICES)}'),
     list_: bool = typer.Option(False, "--list", help="列出所有可用的操作代码并退出。"),
     identifier: Optional[str] = None,
     last_job: bool = False,
@@ -384,21 +552,15 @@ def action(
     mode: str = typer.Option("fast", "--mode", "-m", help="生成模式"),
     verbose: bool = False
 ):
-    """Perform an action (upscale, variation, etc.) on an existing task."""
-    logger, _ = common_setup(verbose)
-    if list_:
-        print("可用的操作代码:")
-        for code in ACTION_CHOICES:
-            desc = ACTION_DESCRIPTIONS.get(code, "无描述")
-            print(f"  {code}: {desc}")
-        raise typer.Exit(code=0)
-    api_key = get_api_key(logger)
+    """Perform an action (e.g., variation, upscale) on a task."""
+    # Update call to unpack new return values
+    logger, config, cwd, crc_base_dir, state_dir, _ = common_setup(verbose)
+    api_key = get_api_key(logger) # Action requires API key
     if not api_key:
-        logger.critical("action 命令需要 API 密钥")
+        logger.critical("action 命令需要 TTAPI API 密钥")
+        print("错误: action 命令需要 TTAPI API 密钥 (请设置 TTAPI_API_KEY 或在 .env 中配置)")
         raise typer.Exit(code=1)
-    if not action_code:
-        logger.error("必须提供 action_code 或使用 --list 列出操作代码")
-        raise typer.Exit(code=1)
+
     class Args: pass
     args = Args()
     args.action_code = action_code
@@ -409,7 +571,41 @@ def action(
     args.wait = wait
     args.mode = mode
     args.verbose = verbose
-    handle_action(args, logger, api_key)
+    args.list_ = list_
+
+    # Pass necessary paths
+    handle_action(
+        args=args,
+        logger=logger,
+        api_key=api_key,
+        config=config,
+        cwd=cwd,
+        crc_base_dir=crc_base_dir, # For finding metadata
+        state_dir=state_dir # For resolving task IDs
+    )
+
+# --- Add Sync Command --- #
+@app.command()
+def sync(verbose: bool = False):
+    """Synchronize local task status with the remote API and download completed images."""
+    logger, config, cwd, crc_base_dir, state_dir, output_dir = common_setup(verbose)
+    api_key = get_api_key(logger)
+    if not api_key:
+        logger.critical("sync 命令需要 TTAPI API 密钥")
+        print("错误: sync 命令需要 TTAPI API 密钥 (请设置 TTAPI_API_KEY 或在 .env 中配置)")
+        raise typer.Exit(code=1)
+    
+    metadata_dir = os.path.join(crc_base_dir, 'metadata')
+    
+    handle_sync(
+        logger=logger,
+        api_key=api_key,
+        metadata_dir=metadata_dir,
+        output_dir=output_dir,
+        state_dir=state_dir,
+        silent=False # Or add a --silent option to the command
+    )
+# --- End Sync Command --- #
 
 if __name__ == "__main__":
     app()

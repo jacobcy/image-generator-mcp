@@ -11,60 +11,82 @@ import os
 import json
 import sys
 import logging # Import logging
+import copy # Import copy for deep merging
+from typing import Optional
 
 # Note: logger needs to be passed into the functions
 
-def load_config(logger, config_path):
-    """加载指定的提示词配置文件
+def load_config(logger: logging.Logger, default_config_path: str, local_config_path: str) -> Optional[dict]:
+    """加载配置文件，优先使用默认配置，并允许本地配置覆盖/合并。
 
-    参数:
-    - logger: The logging object.
-    - config_path: Path to the configuration file.
+    Args:
+        logger: The logging object.
+        default_config_path: Path to the default configuration file (usually in the install dir).
+        local_config_path: Path to the local configuration file (in the current working directory).
+
+    Returns:
+        A dictionary containing the final configuration, or None if the default config fails.
     """
-    # 尝试多个位置查找配置文件
-    paths_to_try = [
-        # 1. 首先尝试指定的路径
-        config_path,
-        # 2. 尝试当前工作目录
-        os.path.join(os.getcwd(), 'prompts_config.json'),
-        # 3. 尝试用户主目录
-        os.path.join(os.path.expanduser('~'), 'prompts_config.json'),
-        # 4. 尝试项目根目录 (假设当前目录是项目目录)
-        os.path.join(os.getcwd(), 'cell_cover', 'prompts_config.json')
-    ]
+    config = None
+    # 1. Load default config - This is mandatory
+    try:
+        logger.debug(f"尝试加载默认配置文件: {default_config_path}")
+        with open(default_config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+            logger.info(f"默认配置文件加载成功: {default_config_path}")
+    except FileNotFoundError:
+        logger.critical(f"错误：默认配置文件未找到 - {default_config_path}")
+        print(f"错误：默认配置文件未找到 - {default_config_path}")
+        return None # Cannot proceed without default config
+    except json.JSONDecodeError as e:
+        logger.critical(f"错误：默认配置文件格式错误 - {default_config_path} - {e}")
+        print(f"错误：默认配置文件格式错误 - {default_config_path} - {e}")
+        return None # Cannot proceed with invalid default config
+    except Exception as e:
+        logger.critical(f"错误：加载默认配置文件时出错 - {default_config_path} - {e}")
+        print(f"错误：加载默认配置文件时出错 - {default_config_path} - {e}")
+        return None # Cannot proceed
 
-    # 去除重复路径
-    paths_to_try = list(dict.fromkeys(paths_to_try))
-
-    last_error = None
-    for path in paths_to_try:
+    # 2. Load local config if it exists and merge/override
+    if os.path.exists(local_config_path):
         try:
-            logger.debug(f"尝试加载配置文件: {path}")
-            with open(path, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-                logger.info(f"配置文件加载成功: {path}，包含 {len(config.get('concepts', {}))} 个概念")
-                return config
-        except FileNotFoundError:
-            logger.debug(f"配置文件未找到 - {path}")
-            last_error = f"错误：配置文件未找到 - {path}"
-            continue
-        except json.JSONDecodeError as e:
-            logger.error(f"错误：配置文件格式错误 - {path} - {e}")
-            print(f"错误：配置文件格式错误 - {path} - {e}")
-            sys.exit(1)
-        except Exception as e:
-            logger.error(f"错误：加载配置文件时出错 - {path} - {e}")
-            print(f"错误：加载配置文件时出错 - {path} - {e}")
-            sys.exit(1)
+            logger.debug(f"发现本地配置文件，尝试加载: {local_config_path}")
+            with open(local_config_path, 'r', encoding='utf-8') as f:
+                local_config = json.load(f)
+                logger.info(f"本地配置文件加载成功: {local_config_path}")
+                # Merge strategy: Simple dictionary update (local overrides default)
+                # For deeper merging, a recursive merge function would be needed.
+                # Example: config.update(local_config)
+                # Let's implement a basic deep merge for top-level keys like 'concepts'
+                def deep_merge(source, destination):
+                    """Recursively merges source dict into destination dict."""
+                    for key, value in source.items():
+                        if isinstance(value, dict):
+                            # Get node or create one
+                            node = destination.setdefault(key, {})
+                            deep_merge(value, node)
+                        else:
+                            destination[key] = value
+                    return destination
 
-    # 如果所有路径都失败，显示错误信息
-    logger.error(f"错误：无法在任何位置找到配置文件")
-    print(f"错误：无法在任何位置找到配置文件")
-    print(f"尝试过以下路径:")
-    for path in paths_to_try:
-        print(f"  - {path}")
-    print(f"请在以上任一位置创建 prompts_config.json 文件")
-    sys.exit(1)
+                # Perform the deep merge
+                config = deep_merge(local_config, copy.deepcopy(config)) # Use deepcopy of base
+                logger.info(f"本地配置已合并入默认配置。")
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"警告：本地配置文件格式错误 - {local_config_path} - {e}。将忽略本地配置。")
+            print(f"警告：本地配置文件格式错误 - {local_config_path} - {e}。将忽略本地配置。")
+        except Exception as e:
+            logger.warning(f"警告：加载本地配置文件时出错 - {local_config_path} - {e}。将忽略本地配置。")
+            print(f"警告：加载本地配置文件时出错 - {local_config_path} - {e}。将忽略本地配置。")
+    else:
+        logger.debug(f"本地配置文件未找到: {local_config_path}")
+
+    # Log final concept count
+    if config:
+        logger.info(f"最终配置包含 {len(config.get('concepts', {}))} 个概念")
+
+    return config
 
 def get_api_key(logger, script_dir_for_env_fallback=None, service="ttapi"):
     """从环境变量或项目根目录的 .env 文件获取API密钥

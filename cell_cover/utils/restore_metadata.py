@@ -18,7 +18,6 @@ from typing import List, Dict, Any, Optional, Tuple
 
 # 从其他utils模块导入常量和函数
 from .filesystem_utils import (
-    META_DIR, METADATA_FILENAME, IMAGE_DIR,
     ensure_directories, write_last_succeed_job_id,
     sanitize_filename
 )
@@ -37,6 +36,15 @@ from .api import normalize_api_response
 from .api_client import poll_for_result
 # from .api import poll_for_result, normalize_api_response # 旧的导入方式
 from .image_handler import download_and_save_image
+
+# 定义 METADATA_FILENAME 本地
+METADATA_FILENAME = 'images_metadata.json'  # 直接在本文件中定义
+
+# 定义 META_DIR 本地
+META_DIR = 'metadata'  # 直接在本文件中定义
+
+# 定义 IMAGE_DIR 本地
+IMAGE_DIR = 'images'  # 直接在本文件中定义
 
 def restore_metadata_from_remote(logger: logging.Logger, job_list: List[Dict[str, Any]], api_key: Optional[str] = None) -> Optional[int]:
     """从TTAPI获取的任务列表恢复本地缺失的元数据。

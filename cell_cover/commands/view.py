@@ -30,13 +30,14 @@ from ..utils.metadata_manager import _generate_expected_filename # Added import
 
 logger = logging.getLogger(__name__)
 
-def resolve_job_identifier(logger, raw_identifier):
+def resolve_job_identifier(logger, raw_identifier, metadata_dir):
     """
     解析并查找各种可能的标识符格式：完整Job ID、短ID、图片文件名等。
 
     Args:
         logger: 日志记录器
         raw_identifier: 用户提供的标识符
+        metadata_dir: 元数据目录
 
     Returns:
         dict: 包含 'job_id' 和 'local_job_info' 的字典，如果未能解析则返回 None
@@ -51,7 +52,7 @@ def resolve_job_identifier(logger, raw_identifier):
     short_id_pattern = re.compile(r'^[0-9a-f]{6}$', re.IGNORECASE)
 
     # 首先，尝试在本地查找
-    local_job_info = find_initial_job_info(logger, raw_identifier)
+    local_job_info = find_initial_job_info(logger, raw_identifier, metadata_dir)
 
     if local_job_info:
         job_id = local_job_info.get("job_id")
@@ -79,7 +80,7 @@ def resolve_job_identifier(logger, raw_identifier):
     logger.error(f"无法解析标识符 '{raw_identifier}' 为有效的任务ID或文件名。")
     return None
 
-def update_local_job_history(logger, job_id, api_result):
+def update_local_job_history(logger, job_id, api_result, metadata_dir: str = None):
     """
     用API返回的结果更新本地任务信息。
     如果任务不存在，则创建新记录。
@@ -88,6 +89,7 @@ def update_local_job_history(logger, job_id, api_result):
         logger: 日志记录器
         job_id: 任务ID
         api_result: API返回的任务结果数据
+        metadata_dir: 元数据目录
 
     Returns:
         bool: 更新或创建是否成功
@@ -101,7 +103,7 @@ def update_local_job_history(logger, job_id, api_result):
 
     if normalized_result:
         # 先尝试查找任务
-        local_job_info = find_initial_job_info(logger, job_id)
+        local_job_info = find_initial_job_info(logger, job_id, metadata_dir)
 
         # 处理 UNKNOWN 和 SUCCESS 状态
         status = normalized_result.get('status')
@@ -132,7 +134,7 @@ def update_local_job_history(logger, job_id, api_result):
             # 使用 save_image_metadata 创建新记录
             return save_image_metadata(
                 logger, str(uuid.uuid4()), job_id, None, None, url,
-                prompt, concept, variations, global_styles,
+                prompt, concept, metadata_dir, variations, global_styles,
                 None, seed, original_job_id, action_code,
                 status
             )
@@ -150,7 +152,9 @@ def handle_view(
     save: bool = False,
     local_only: bool = False,
     verbose: bool = False,
-    history: bool = False
+    history: bool = False,
+    metadata_dir: str = None,
+    state_dir: str = None
 ):
     """处理 'view' 命令，根据标识符查看任务状态和结果。"""
 
@@ -187,7 +191,7 @@ def handle_view(
         return 1
 
     # 解析标识符
-    resolved = resolve_job_identifier(logger, raw_identifier)
+    resolved = resolve_job_identifier(logger, raw_identifier, metadata_dir)
     if not resolved:
         logger.error(f"无法解析标识符: {raw_identifier}")
         print(f"错误：无法确定 '{raw_identifier}' 对应的任务ID，请提供完整的任务ID、正确的图像文件名或短ID。")
@@ -295,7 +299,7 @@ def handle_view(
                     print(f"  消息:       {msg}")
                 if save:
                     logger.info("使用API数据更新本地任务记录")
-                    update_local_job_history(logger, job_id_to_query, api_data)
+                    update_local_job_history(logger, job_id_to_query, api_data, metadata_dir)
                     if final_status == "SUCCESS" and image_url:
                         logger.info("--save 条件满足 (SUCCESS 状态和图像 URL)。")
                         print(f"任务已成功完成，尝试下载并保存图像: {image_url}")
@@ -308,7 +312,7 @@ def handle_view(
                         normalized_save_data = normalize_api_response(logger, api_data)
                         normalized_save_data['job_id'] = job_id_to_query
                         try:
-                            all_tasks = load_all_metadata(logger)
+                            all_tasks = load_all_metadata(logger, metadata_dir)
                             all_tasks_index = _build_metadata_index(all_tasks)
                             expected_filename = _generate_expected_filename(logger, normalized_save_data, all_tasks_index)
                         except Exception as e:
@@ -332,7 +336,7 @@ def handle_view(
                         if download_success:
                             logger.info(f"图像已下载到: {saved_path}")
                             print(f"图像已下载到: {saved_path}")
-                            write_last_succeed_job_id(logger, job_id_to_query)
+                            write_last_succeed_job_id(logger, job_id_to_query, state_dir)
                             return 0
                         else:
                             logger.error("图像下载或保存失败")
@@ -381,7 +385,7 @@ def handle_view(
                     online_url = normalized_result.get('url')
                     if online_url:
                         print(f"  在线图像:   {online_url}")
-                        update_local_job_history(logger, job_id_to_query, api_result)
+                        update_local_job_history(logger, job_id_to_query, api_result, metadata_dir)
             except Exception as e:
                 logger.warning(f"获取在线URL时发生错误: {str(e)}")
         elif local_only and not online_url:

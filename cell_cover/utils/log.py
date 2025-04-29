@@ -19,11 +19,11 @@ except ImportError:
     COLORLOG_AVAILABLE = False
     print("提示: 为了获得彩色日志输出，请安装 'colorlog' 库 (uv pip install colorlog)")
 
-def setup_logging(log_dir_base, verbose=False):
+def setup_logging(log_dir, verbose=False):
     """配置日志记录器
 
     Args:
-        log_dir_base: The base directory where the 'logs' subdirectory should be created.
+        log_dir: The directory where log files should be stored.
         verbose: If True, set log level to DEBUG, otherwise WARNING.
     """
     log_level = logging.DEBUG if verbose else logging.WARNING
@@ -83,9 +83,11 @@ def setup_logging(log_dir_base, verbose=False):
     console_handler.setLevel(log_level) # Ensure handler respects the level
 
     # --- File Handler Setup --- #
-    log_dir = os.path.join(log_dir_base, "logs")
+    # log_dir is now passed directly
+    # log_dir = os.path.join(log_dir_base, "logs") # No longer needed
     try:
-        os.makedirs(log_dir, exist_ok=True) # Use exist_ok=True
+        # Ensure the directly passed log_dir exists
+        os.makedirs(log_dir, exist_ok=True)
         # Log directory creation info only if it didn't exist
         # We need a temporary basic config to log this if logger is not yet fully set up
         # Or, just print it

@@ -30,6 +30,10 @@ logs/
 metadata/
 cell_cover/metadata/
 .config/
+images/
+cell_cover/images/
+outputs/
+cell_cover/outputs/
 
 # OS / Editor specific
 .DS_Store

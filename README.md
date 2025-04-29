@@ -222,6 +222,8 @@ crc <command> --help
     *   `-c, --concept <key>`: 按概念过滤。
     *   `--sort-by <field>`: 排序字段 (`timestamp`, `status`, `concept`，默认 `timestamp`)。
     *   `--asc`: 升序排序 (默认降序)。
+    *   `-r, --remote`: 从远程API获取任务列表而非本地元数据。当本地保存失败时，可用此选项查看远程任务状态。
+    *   `-v, --verbose`: 显示详细信息，包括完整提示词和额外元数据。
 
 ---
 
