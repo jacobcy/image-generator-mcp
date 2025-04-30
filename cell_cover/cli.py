@@ -216,6 +216,7 @@ def generate(
     version: str = typer.Option("v6", "--version", "-ver"),
     cref: Optional[str] = None,
     style: Optional[List[str]] = None,
+    style_degree: Optional[float] = typer.Option(None, "--sd", help="生成Stable Diffusion风格的加权提示词，并指定权重值"),
     clipboard: bool = False,
     save_prompt: bool = False,
     verbose: bool = False
@@ -236,6 +237,7 @@ def generate(
     args.clipboard = clipboard
     args.save_prompt = save_prompt
     args.verbose = verbose
+    args.style_degree = style_degree
     handle_generate(
         prompt=args.prompt,
         concept=args.concept,
@@ -249,8 +251,9 @@ def generate(
         save_prompt=args.save_prompt,
         config=config,
         logger=logger,
-        cwd=cwd, # Pass cwd
-        output_dir=output_dir # Pass output_dir if needed for saving prompts
+        cwd=cwd,
+        output_dir=output_dir,
+        style_degree=args.style_degree
     )
 
 @app.command()

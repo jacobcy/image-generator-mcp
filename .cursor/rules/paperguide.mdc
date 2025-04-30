@@ -1,10 +1,8 @@
 ---
-description: 
+description: Markdown学术论文格式指南
 globs: 
-alwaysApply: true
+alwaysApply: false
 ---
-
-# Markdown学术论文格式指南
 
 ## 基本结构
 

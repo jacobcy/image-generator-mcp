@@ -1,10 +1,10 @@
 ---
-description:
+description: Rules for Removing AI Style
 globs:
-alwaysApply: true
+alwaysApply: false 
 ---
 
-# 去除文章AI风格的具体规则 (Rules for Removing AI Style)
+# 去除文章AI风格的具体规则
 
 - **规则一：精简生硬的过渡词 (Rule 1: Simplify Stiff Transition Words)**
 * **指引：** 减少或避免使用“首先、其次、此外、再次、一方面、另一方面、总而言之、值得注意的是”等过于格式化的连接词。优先让内容本身的逻辑来引导读者，或使用更自然、更融入上下文的词语（如“而且”、“同时”、“但”、“不过”、“另外”）。

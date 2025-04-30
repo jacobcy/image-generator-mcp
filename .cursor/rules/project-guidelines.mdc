@@ -1,0 +1,23 @@
+---
+description:
+globs:
+alwaysApply: true
+---
+# Project Guidelines
+
+## 代码规范
+- 每个文件行数少于 200 行。
+- 命名一致：组件使用 PascalCase（如 ImageProcessor），文件使用 kebab-case（如 image-processor.py）。
+- 单一职责：每个文件只处理一个功能，例如图像处理模块。
+
+## 目录结构
+- 按功能模块分离：/cell_cover 用于图像生成核心逻辑，/scripts 用于命令脚本，其他如 /services 可扩展。
+- 代码结构：主入口通过 pyproject.toml 加载，cell_cover/ 应引用配置文件，如 [README_IMAGE_UPLOADER.md](mdc:README_IMAGE_UPLOADER.md)。
+
+## 质量标准
+- 测试覆盖率至少 70%，在 scripts/ 中添加测试示例。
+- 完整文档：每个模块需有描述，例如在 README.md 中。
+
+## 其他原则
+- 避免反模式：不添加猜测逻辑，只基于现有目录。
+- Git 提交：遵循 Conventional Commits 格式。
