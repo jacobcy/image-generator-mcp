@@ -54,10 +54,10 @@ def handle_action(
     wait = args.wait
     mode = args.mode
     # api_key is passed directly, not in args
-    
+
     # logger is passed directly
     global logger_in_func # Avoid shadowing, use a different name or rely on passed logger
-    logger_in_func = logger 
+    logger_in_func = logger
     logger_in_func.info(f"开始处理 'action' 命令: action='{action_code}', identifier={identifier}, last_job={last_job}, last_succeed={last_succeed}, wait={wait}, mode={mode}")
 
     # 验证 action_code 是否在允许的列表中 (Use the unpacked action_code)
@@ -86,7 +86,7 @@ def handle_action(
     elif last_succeed:
         source_description = "上一个成功任务 ID"
         logger_in_func.info(f"使用 {source_description}，尝试读取 last_succeed.json...")
-        raw_identifier = read_last_succeed_job_id(logger_in_func)
+        raw_identifier = read_last_succeed_job_id(logger_in_func, state_dir)
         if not raw_identifier:
             logger_in_func.error(f"错误：无法读取 {source_description} (last_succeed.json)。")
             print(f"错误：找不到上次成功的任务 ID。")
@@ -95,7 +95,7 @@ def handle_action(
     else: # Default or last_job
         source_description = "上一个提交任务 ID"
         logger_in_func.info(f"未提供标识符或 --last-succeed，使用 {source_description}，尝试读取 last_job.json...")
-        raw_identifier = read_last_job_id(logger_in_func)
+        raw_identifier = read_last_job_id(logger_in_func, state_dir)
         if not raw_identifier:
             logger_in_func.error(f"错误：无法读取 {source_description} (last_job.json)。")
             print(f"错误：找不到上次提交的任务 ID。请提供标识符或使用 --last-succeed。")
@@ -146,7 +146,7 @@ def handle_action(
         logger_in_func.info(f"Action API 调用成功，返回新的 Job ID: {new_job_id}")
         print(f"操作 '{action_code}' 已成功提交，新的任务 ID: {new_job_id}")
         # Update last job ID immediately after successful submission
-        write_last_job_id(logger_in_func, new_job_id)
+        write_last_job_id(logger_in_func, new_job_id, state_dir)
 
         # --- Wait, Poll, Download, and Save Metadata (if requested and no webhook) --- #
         if wait and not hook_url:
@@ -199,7 +199,7 @@ def handle_action(
                         if download_success:
                             logger_in_func.info(f"操作 '{action_code}' 的图像和元数据已保存: {saved_path}")
                             print(f"操作 '{action_code}' 的图像和元数据已保存: {saved_path}")
-                            write_last_succeed_job_id(logger_in_func, new_job_id)
+                            write_last_succeed_job_id(logger_in_func, new_job_id, state_dir)
                             return 0
                         else:
                             logger_in_func.error(f"操作 '{action_code}' 的图像下载或保存失败 (Job ID: {new_job_id})。")

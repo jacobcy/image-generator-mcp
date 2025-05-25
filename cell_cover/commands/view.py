@@ -80,7 +80,7 @@ def resolve_job_identifier(logger, raw_identifier, metadata_dir):
     logger.error(f"无法解析标识符 '{raw_identifier}' 为有效的任务ID或文件名。")
     return None
 
-def update_local_job_history(logger, job_id, api_result, metadata_dir: str = None):
+def update_local_job_history(logger, job_id, api_result, metadata_dir: Optional[str] = None):
     """
     用API返回的结果更新本地任务信息。
     如果任务不存在，则创建新记录。
@@ -103,7 +103,11 @@ def update_local_job_history(logger, job_id, api_result, metadata_dir: str = Non
 
     if normalized_result:
         # 先尝试查找任务
-        local_job_info = find_initial_job_info(logger, job_id, metadata_dir)
+        if metadata_dir:
+            local_job_info = find_initial_job_info(logger, job_id, metadata_dir)
+        else:
+            logger.warning("metadata_dir 为空，无法查找本地任务信息")
+            local_job_info = None
 
         # 处理 UNKNOWN 和 SUCCESS 状态
         status = normalized_result.get('status')
@@ -116,7 +120,11 @@ def update_local_job_history(logger, job_id, api_result, metadata_dir: str = Non
             # 如果任务存在，则更新
             logger.info(f"使用标准化的API数据更新本地任务 {job_id}")
             logger.debug(f"标准化后的更新数据: {normalized_result}")
-            return update_job_metadata(logger, job_id, normalized_result)
+            if metadata_dir:
+                return update_job_metadata(logger, job_id, normalized_result, metadata_dir)
+            else:
+                logger.warning("metadata_dir 为空，无法更新任务元数据")
+                return False
         else:
             # 如果任务不存在，则创建新记录
             logger.info(f"任务 {job_id} 在本地不存在，创建新记录")
@@ -132,12 +140,16 @@ def update_local_job_history(logger, job_id, api_result, metadata_dir: str = Non
             status = normalized_result.get('status', 'completed')
 
             # 使用 save_image_metadata 创建新记录
-            return save_image_metadata(
-                logger, str(uuid.uuid4()), job_id, None, None, url,
-                prompt, concept, metadata_dir, variations, global_styles,
-                None, seed, original_job_id, action_code,
-                status
-            )
+            if metadata_dir:
+                return save_image_metadata(
+                    logger, str(uuid.uuid4()), job_id, None, None, url,
+                    prompt, concept, metadata_dir, variations, global_styles,
+                    None, seed, original_job_id, action_code,
+                    status
+                )
+            else:
+                logger.warning("metadata_dir 为空，无法创建新记录")
+                return False
     else:
         logger.warning(f"API返回数据标准化后没有需要更新的字段")
         return False
@@ -153,8 +165,8 @@ def handle_view(
     local_only: bool = False,
     verbose: bool = False,
     history: bool = False,
-    metadata_dir: str = None,
-    state_dir: str = None
+    metadata_dir: Optional[str] = None,
+    state_dir: Optional[str] = None
 ):
     """处理 'view' 命令，根据标识符查看任务状态和结果。"""
 
@@ -168,18 +180,20 @@ def handle_view(
 
     if last_job:
         logger.info("使用上次提交的任务ID")
-        raw_identifier = read_last_job_id(logger)
+        raw_identifier = read_last_job_id(logger, state_dir)
         if not raw_identifier:
             logger.error("找不到上次提交的任务ID")
             print("错误：找不到上次提交的任务ID，请确保之前有成功提交的任务。")
+            print(f"提示：任务ID文件应位于 {state_dir}/last_job.json")
             return 1
         logger.info(f"获取到上次任务ID: {raw_identifier}")
     elif last_succeed:
         logger.info("使用上次成功的任务ID")
-        raw_identifier = read_last_succeed_job_id(logger)
+        raw_identifier = read_last_succeed_job_id(logger, state_dir)
         if not raw_identifier:
             logger.error("找不到上次成功的任务ID")
             print("错误：找不到上次成功的任务ID，请确保之前有成功完成的任务。")
+            print(f"提示：成功任务ID文件应位于 {state_dir}/last_succeed.json")
             return 1
         logger.info(f"获取到上次成功任务ID: {raw_identifier}")
     elif identifier:
@@ -202,32 +216,45 @@ def handle_view(
 
     # --- 显示基本信息 ---
     print("\n--- 任务详情 ---")
-    print(f"  标识符:     {raw_identifier}")
+    # 标识符始终显示为6位短代码
+    short_identifier = job_id_to_query[:6] if job_id_to_query else "未知"
+    print(f"  标识符:     {short_identifier}")
     print(f"  Job ID:     {job_id_to_query}")
 
     # --- 处理 --history 选项 ---
     if history and initial_local_info:
-        history_chain = trace_job_history(logger, job_id_to_query)
+        if metadata_dir:
+            history_chain = trace_job_history(logger, job_id_to_query, metadata_dir)
+        else:
+            logger.warning("metadata_dir 为空，无法获取任务历史")
+            history_chain = None
         if history_chain:
             print(f"\n  --- 任务历史 ({len(history_chain)} 个任务) ---")
             for i, task in enumerate(history_chain):
                 task_job_id = task.get("job_id", "未知")
+                # 显示6位短代码而不是完整Job ID
+                task_short_id = task_job_id[:6] if task_job_id != "未知" else "未知"
                 task_action = task.get("action_code", "")
                 task_concept = task.get("concept", "未知")
                 chain_indicator = "  └─ " if i == len(history_chain) - 1 else "  ├─ "
                 if i == 0:  # 根任务
-                    print(f"  [根] {task_job_id} - {task_concept}")
+                    print(f"  [根] {task_short_id} - {task_concept}")
                 elif task_action:  # Action 任务
-                    print(f"{chain_indicator}[通过 {task_action}] {task_job_id} - {task_concept}")
+                    print(f"{chain_indicator}[通过 {task_action}] {task_short_id} - {task_concept}")
                 else:  # 其他类型的任务
-                    print(f"{chain_indicator}{task_job_id} - {task_concept}")
+                    print(f"{chain_indicator}{task_short_id} - {task_concept}")
 
     # --- 步骤 3.2: 区分处理流程 ---
     # 显示本地信息（如果有）
     if initial_local_info:
         print("\n  --- 本地元数据 ---")
-        if initial_local_info.get("filename"):
-            print(f"  本地文件名: {initial_local_info['filename']}")
+        # 优先显示完整路径，如果没有则显示文件名
+        filepath = initial_local_info.get("filepath")
+        filename = initial_local_info.get("filename")
+        if filepath:
+            print(f"  本地文件路径: {filepath}")
+        elif filename:
+            print(f"  本地文件名: {filename}")
         online_url = initial_local_info.get("url") or initial_local_info.get("cdnImage")
         if online_url:
             print(f"  在线图像:   {online_url}")
@@ -270,7 +297,7 @@ def handle_view(
                 final_status, api_data = poll_response
                 print(f"  远程状态:   {final_status}")
                 if save and final_status == 'FAILED':
-                    if remove_job_metadata(logger, job_id_to_query):
+                    if metadata_dir and remove_job_metadata(logger, job_id_to_query, metadata_dir):
                         print(f"已删除失败任务 {job_id_to_query} 的元数据记录。")
                     else:
                         print(f"警告：无法删除失败任务 {job_id_to_query} 的元数据记录。")
@@ -312,9 +339,12 @@ def handle_view(
                         normalized_save_data = normalize_api_response(logger, api_data)
                         normalized_save_data['job_id'] = job_id_to_query
                         try:
-                            all_tasks = load_all_metadata(logger, metadata_dir)
-                            all_tasks_index = _build_metadata_index(all_tasks)
-                            expected_filename = _generate_expected_filename(logger, normalized_save_data, all_tasks_index)
+                            if metadata_dir:
+                                all_tasks = load_all_metadata(logger, metadata_dir)
+                                all_tasks_index = _build_metadata_index(all_tasks)
+                                expected_filename = _generate_expected_filename(logger, normalized_save_data, all_tasks_index)
+                            else:
+                                expected_filename = f"{job_id_to_query}.png"
                         except Exception as e:
                             logger.error(f"为任务 {job_id_to_query} 生成期望文件名时出错: {e}，将使用 job_id 作为备用名。")
                             expected_filename = f"{job_id_to_query}.png"
@@ -376,7 +406,7 @@ def handle_view(
     # 如果只是查看本地，返回成功
     if not remote and not save and initial_local_info:
         online_url = initial_local_info.get("url") or initial_local_info.get("cdnImage")
-        if not online_url and not local_only:
+        if not online_url and not local_only and api_key:
             try:
                 print(f"\n正在尝试获取任务 {job_id_to_query} 的在线URL...")
                 api_result = poll_for_result(logger, job_id_to_query, api_key)

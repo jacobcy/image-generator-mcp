@@ -66,8 +66,11 @@ def sanitize_filename(name):
 
 # --- Last Job ID Functions (now use state_dir) ---
 
-def read_last_job_id(logger: logging.Logger, state_dir: str) -> Optional[str]:
+def read_last_job_id(logger: logging.Logger, state_dir: Optional[str]) -> Optional[str]:
     """Reads the last Job ID from the state directory."""
+    if not state_dir:
+        logger.error("state_dir 为空，无法读取 last job ID")
+        return None
     last_job_filepath = os.path.join(state_dir, 'last_job.json')
     if not os.path.exists(last_job_filepath):
         logger.info(f"Last job ID file ({last_job_filepath}) not found. Cannot retrieve last job.")
@@ -92,10 +95,14 @@ def read_last_job_id(logger: logging.Logger, state_dir: str) -> Optional[str]:
         logger.error(f"读取最后一个 Job ID 时发生意外错误: {e}", exc_info=True)
         return None
 
-def write_last_job_id(logger: logging.Logger, job_id: str, state_dir: str) -> bool:
+def write_last_job_id(logger: logging.Logger, job_id: str, state_dir: Optional[str]) -> bool:
     """Writes the given Job ID to the state directory."""
     if not job_id or not isinstance(job_id, str):
         logger.error("尝试写入无效的 Job ID。")
+        return False
+
+    if not state_dir:
+        logger.error("state_dir 为空，无法写入 last job ID")
         return False
 
     # state_dir should already exist from common_setup, but double-check
@@ -125,8 +132,11 @@ def write_last_job_id(logger: logging.Logger, job_id: str, state_dir: str) -> bo
 
 # --- Last Succeed Job ID Functions (now use state_dir) ---
 
-def read_last_succeed_job_id(logger: logging.Logger, state_dir: str) -> Optional[str]:
+def read_last_succeed_job_id(logger: logging.Logger, state_dir: Optional[str]) -> Optional[str]:
     """Reads the last successfully completed Job ID from the state directory."""
+    if not state_dir:
+        logger.error("state_dir 为空，无法读取 last succeed job ID")
+        return None
     last_succeed_filepath = os.path.join(state_dir, 'last_succeed.json')
     if not os.path.exists(last_succeed_filepath):
         logger.info(f"Last succeed job ID file ({last_succeed_filepath}) not found.")
@@ -151,10 +161,14 @@ def read_last_succeed_job_id(logger: logging.Logger, state_dir: str) -> Optional
         logger.error(f"读取最后一个成功 Job ID 时发生意外错误: {e}", exc_info=True)
         return None
 
-def write_last_succeed_job_id(logger: logging.Logger, job_id: str, state_dir: str) -> bool:
+def write_last_succeed_job_id(logger: logging.Logger, job_id: str, state_dir: Optional[str]) -> bool:
     """Writes the given successfully completed Job ID to the state directory."""
     if not job_id or not isinstance(job_id, str):
         logger.error("尝试写入无效的成功 Job ID。")
+        return False
+
+    if not state_dir:
+        logger.error("state_dir 为空，无法写入 last succeed job ID")
         return False
 
     # state_dir should already exist from common_setup, but double-check

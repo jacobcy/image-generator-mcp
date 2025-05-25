@@ -17,17 +17,17 @@ def handle_select(args, logger, cwd, state_dir, default_output_base, metadata_di
     """处理 'select' 命令，基于 job_id 查找并切割图片。"""
     if logger is None:
         logger = logging.getLogger(__name__)
-    
+
     job_id = args.identifier
     select_parts = args.select_parts
     output_dir = args.output_dir
-    
+
     logger.info(f"开始处理 select 命令，目标 Job ID: {job_id}")
 
     # --- Find the image file path using job_id --- #
     image_file_path = None
     job_info = find_initial_job_info(logger, job_id, metadata_dir)
-    
+
     if not job_info:
         error_msg = f"无法在元数据中找到 Job ID '{job_id}' 的记录。"
         logger.error(error_msg)
@@ -41,7 +41,7 @@ def handle_select(args, logger, cwd, state_dir, default_output_base, metadata_di
         logger.error(error_msg)
         print(f"错误: {error_msg}")
         raise typer.Exit(code=1)
-        
+
     logger.info(f"根据 Job ID '{job_id}' 在元数据中找到图片路径: {image_file_path}")
 
     # --- Validate file existence --- #
@@ -52,11 +52,11 @@ def handle_select(args, logger, cwd, state_dir, default_output_base, metadata_di
         raise typer.Exit(code=1)
 
     # --- Proceed with splitting --- #
-    output_directory = args.output_dir or cwd  # Change to use cwd as default
-    logger.info(f"正在切割图片: {image_file_path} 到目录: {output_directory}")
+    current_directory = args.output_dir or cwd  # Change to use cwd as default
+    logger.info(f"正在切割图片: {image_file_path}，切割照片保存到images文件夹，选中照片保存到: {current_directory}")
     print(f"正在切割图片: {os.path.basename(image_file_path)}...")
 
-    split_results = split_image_into_four(image_file_path, output_directory)
+    split_results = split_image_into_four(image_file_path, current_directory, select_parts)
     if isinstance(split_results, tuple) and len(split_results) > 0:
         paths = split_results[0]  # 假设第一个元素是路径列表
     else:
@@ -84,13 +84,23 @@ def handle_select(args, logger, cwd, state_dir, default_output_base, metadata_di
                 selected_count += 1
 
         # Always return success now if splitting worked, as we don't delete
-        print(f"已标记 {selected_count} 个选定部分。所有切割文件均已保留在目录: {output_directory}")
-        for part_path in paths:
-            if part_path and any(part_key in select_parts for part_key in [f'u{i+1}' for i in range(len(paths))]):
-                print(f"  - 保存路径: {part_path}")
+        images_dir = os.path.join(current_directory, "images")
+        print(f"已标记 {selected_count} 个选定部分。")
+        print(f"所有切割文件保存在: {images_dir}")
+        print(f"选中文件保存在: {current_directory}")
+
+        # 获取选中的文件路径（从split_results的第二个元素）
+        if isinstance(split_results, tuple) and len(split_results) > 1:
+            selected_paths = split_results[1]
+            if selected_paths:
+                print("选中的文件:")
+                for selected_path in selected_paths:
+                    print(f"  - {selected_path}")
+
         raise typer.Exit(code=0)
     else:
-        print(f"未指定选择 (-s)，所有切割部分已保存在目录: {output_directory}")
+        images_dir = os.path.join(current_directory, "images")
+        print(f"未指定选择 (-s)，所有切割部分已保存在目录: {images_dir}")
         for part_path in paths:
             if part_path:
                 print(f"  - 保存路径: {part_path}")

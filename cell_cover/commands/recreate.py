@@ -18,16 +18,27 @@ from ..utils.metadata_manager import _generate_expected_filename
 logger = logging.getLogger(__name__)
 
 def handle_recreate(
-    identifier: str,
-    cref: Optional[str] = None,
-    hook_url: Optional[str] = None,
+    args=None,
     config=None,
     logger=None,
-    api_key=None
+    api_key=None,
+    cwd=None,
+    state_dir=None,
+    metadata_dir=None
 ):
     """处理 'recreate' 命令。"""
+    # Extract parameters from args object
+    identifier = args.identifier if args else None
+    cref = args.cref if args else None
+    hook_url = args.hook_url if args else None
+
+    if not identifier:
+        logger.error("缺少必需的 identifier 参数")
+        print("错误：缺少必需的 identifier 参数")
+        return 1
+
     logger.info(f"正在查找任务 '{identifier}' 的原始信息...")
-    original_job_info = find_initial_job_info(logger, identifier)
+    original_job_info = find_initial_job_info(logger, identifier, metadata_dir)
 
     if not original_job_info:
         error_msg = f"在本地元数据中找不到任务 '{identifier}' 的原始信息。"
@@ -147,7 +158,7 @@ def handle_recreate(
                                 # Metadata is saved inside download_and_save_image
                                 logger.info(f"重新生成的图像和元数据已保存: {saved_path}")
                                 print(f"重新生成的图像和元数据已保存: {saved_path}") # Keep user feedback
-                                write_last_succeed_job_id(logger, job_id)
+                                write_last_succeed_job_id(logger, job_id, state_dir)
                                 return 0
                             else:
                                 logger.error("重新生成的图像下载或保存失败。")
@@ -213,7 +224,7 @@ def handle_recreate(
                 original_job_id # Link to original
             )
             logger.info(f"已保存重新生成任务 {job_id_for_save} 的初始元数据（无图像）。")
-            write_last_job_id(logger, job_id)
+            write_last_job_id(logger, job_id, state_dir)
             return 0
     else: # Submit failed
         error_msg = "重新生成任务提交失败 (API 调用未返回 Job ID)"

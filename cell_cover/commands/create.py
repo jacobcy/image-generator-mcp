@@ -116,7 +116,7 @@ def handle_create(
     aspect_ratios = config.get("aspect_ratios", {})
     quality_settings = config.get("quality_settings", {})
     style_versions = config.get("style_versions", {})
-    
+
     aspect_param = aspect_ratios.get(aspect)
     quality_param = quality_settings.get(quality)
     version_param = style_versions.get(version)
@@ -150,15 +150,15 @@ def handle_create(
         else:
              logger.warning(f"警告：尝试应用变体 '{variation}' 但未提供有效概念 '{concept}'")
              print(f"警告：尝试应用变体 '{variation}' 但未提供有效概念 '{concept}'")
-    
+
     # 步骤 5: 组合最终提示词
     prompt_text = base_prompt
     if params_to_append:
         prompt_text += " " + " ".join(params_to_append)
-    
+
     # 去除多余空格
     prompt_text = re.sub(r'\s+', ' ', prompt_text).strip()
-    
+
     # --- 后续处理不变 --- #
 
     # 检查版本与 cref 的兼容性
@@ -214,7 +214,7 @@ def handle_create(
         # concept_for_metadata 已经在前面设置好了 (如果 concept 为 None 则设为 "temp")
         variation_for_metadata = variation if variation and concept else None # 保持不变
         style_for_metadata = style if style else None # 保持不变
-        
+
         from ..utils.filesystem_utils import write_last_job_id
         write_last_job_id(logger, job_id, state_dir)
         logger.info(f"已将任务 ID {job_id} 写入 last_job 文件")
@@ -299,7 +299,7 @@ def handle_create(
                                 logger.info(f"成功! 图像已保存: {saved_path}")
                                 print(f"成功! 图像已保存: {saved_path}")
                                 from ..utils.filesystem_utils import write_last_succeed_job_id
-                                write_last_succeed_job_id(logger, job_id)
+                                write_last_succeed_job_id(logger, job_id, state_dir)
                                 return 0
                             else:
                                 logger.error("图像下载或保存失败。")

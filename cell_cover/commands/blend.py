@@ -15,18 +15,30 @@ from ..utils.api_client import call_blend_api, poll_for_result
 from ..utils.image_handler import download_and_save_image, encode_image_to_base64
 from ..utils.image_metadata import load_all_metadata, _build_metadata_index
 from ..utils.metadata_manager import _generate_expected_filename
+from ..utils.filesystem_utils import write_last_succeed_job_id
 
 logger = logging.getLogger(__name__)
 
 def handle_blend(
-    image_paths: List[str],
-    dimensions: str = "1024x1024",
-    mode: str = "relax",
-    hook_url: Optional[str] = None,
-    config=None,
-    api_key=None
+    args=None,
+    logger=None,
+    api_key=None,
+    cwd=None,
+    crc_base_dir=None,
+    state_dir=None
 ):
     """处理 'blend' 命令。"""
+    # Extract parameters from args object
+    image_paths = args.identifiers if args else []
+    dimensions = "1024x1024"  # Default value
+    mode = "relax"  # Default value
+    hook_url = None  # Default value
+
+    if not image_paths:
+        logger.error("缺少必需的图像路径参数")
+        print("错误：缺少必需的图像路径参数")
+        return 1
+
     if not (2 <= len(image_paths) <= 5):
         logger.error(f"混合需要 2 到 5 张图片，提供了 {len(image_paths)} 张。")
         print(f"错误：混合需要 2 到 5 张图片，提供了 {len(image_paths)} 张。")
@@ -117,7 +129,7 @@ def handle_blend(
                             logger.info(f"混合图像和元数据已保存: {saved_path}")
                             print(f"混合图像和元数据已保存: {saved_path}")
                             # Update last succeed only if download is successful
-                            write_last_succeed_job_id(logger, job_id)
+                            write_last_succeed_job_id(logger, job_id, state_dir)
                             return 0
                         else:
                             logger.error("混合图像下载或保存失败。")

@@ -367,7 +367,7 @@ def select(
 
 @app.command()
 def view(
-    identifier: Optional[str] = typer.Option(None, "--identifier", "-i", help="要查看的任务的 Job ID 或其他标识符 (默认: 最近成功任务)"),
+    identifier: Optional[str] = typer.Argument(None, help="要查看的任务的 Job ID 或其他标识符 (默认: 最近成功任务)"),
     last_job: bool = typer.Option(False, "--last-job", help="使用上一个任务"),
     last_succeed: bool = typer.Option(False, "--last-succeed", help="使用上一个成功任务"),
     remote: bool = typer.Option(False, "--remote", help="从远程获取信息"),

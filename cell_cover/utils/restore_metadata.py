@@ -23,7 +23,7 @@ from .filesystem_utils import (
 )
 from .file_handler import MAX_FILENAME_LENGTH
 from .image_metadata import (
-    _load_metadata_file, _save_metadata_file, 
+    _load_metadata_file, _save_metadata_file,
     update_job_metadata, upsert_job_metadata,
     load_all_metadata,
     _build_metadata_index,
@@ -46,14 +46,14 @@ META_DIR = 'metadata'  # 直接在本文件中定义
 # 定义 IMAGE_DIR 本地
 IMAGE_DIR = 'images'  # 直接在本文件中定义
 
-def restore_metadata_from_remote(logger: logging.Logger, job_list: List[Dict[str, Any]], api_key: Optional[str] = None) -> Optional[int]:
+def restore_metadata_from_remote(logger: logging.Logger, job_list: List[Dict[str, Any]], api_key: Optional[str] = None, state_dir: Optional[str] = None) -> Optional[int]:
     """从TTAPI获取的任务列表恢复本地缺失的元数据。
-    
+
     Args:
         logger: 日志记录器
         job_list: 从TTAPI获取的任务列表
         api_key: API密钥，用于获取更多任务详情（可选）
-    
+
     Returns:
         int: 恢复的记录数，如果发生错误则返回None
     """
@@ -61,7 +61,8 @@ def restore_metadata_from_remote(logger: logging.Logger, job_list: List[Dict[str
     logger.info(f"开始从TTAPI任务列表恢复缺失的元数据到{target_filename}...")
 
     # 1. 加载现有的本地元数据
-    all_tasks = load_all_metadata(logger)
+    # 使用默认的元数据目录，因为这个函数可能是独立运行的
+    all_tasks = load_all_metadata(logger, metadata_dir='metadata')
     if all_tasks is None:
         logger.critical("无法加载本地元数据，无法继续恢复操作")
         return None
@@ -77,7 +78,7 @@ def restore_metadata_from_remote(logger: logging.Logger, job_list: List[Dict[str
         if not job_id:
             logger.warning("远程任务缺少job_id，跳过")
             continue
-            
+
         # 如果任务在本地不存在，则恢复
         if job_id not in existing_job_ids:
             # 标准化API响应
@@ -85,10 +86,10 @@ def restore_metadata_from_remote(logger: logging.Logger, job_list: List[Dict[str
             if not normalized_data:
                 logger.warning(f"无法标准化任务{job_id}的数据，跳过")
                 continue
-                
+
             # 确保有job_id
             normalized_data["job_id"] = job_id
-            
+
             # 如果需要并且有API密钥，获取更多任务详情
             if api_key and normalized_data.get("status") == "completed":
                 try:
@@ -97,7 +98,7 @@ def restore_metadata_from_remote(logger: logging.Logger, job_list: List[Dict[str
 
                     if poll_response:
                         final_status, api_data = poll_response
-                        
+
                         # Only update if poll succeeded and status is still relevant
                         if final_status == "SUCCESS" and isinstance(api_data, dict):
                             # 更新标准化数据 - Use api_data
@@ -118,20 +119,21 @@ def restore_metadata_from_remote(logger: logging.Logger, job_list: List[Dict[str
 
                 except Exception as e:
                     logger.warning(f"获取任务{job_id}的详情时出错: {str(e)}")
-            
+
             # 添加恢复标记
             normalized_data["restored_at"] = datetime.now().isoformat()
-            
+
             # 如果没有concept，设置为"restored"
             if not normalized_data.get("concept"):
                 normalized_data["concept"] = "restored"
-                
+
             # 保存到元数据
-            success = upsert_job_metadata(logger, job_id, normalized_data)
+            # 使用默认的元数据目录
+            success = upsert_job_metadata(logger, job_id, normalized_data, metadata_dir='metadata')
             if success:
                 restored_count += 1
                 logger.info(f"已恢复任务{job_id}的元数据")
-                
+
                 # 如果有图像URL，尝试下载
                 image_url = normalized_data.get("url")
                 if image_url and api_key:
@@ -143,7 +145,7 @@ def restore_metadata_from_remote(logger: logging.Logger, job_list: List[Dict[str
                         styles = normalized_data.get("global_styles", "")
                         original_job_id = normalized_data.get("original_job_id")
                         action_code = normalized_data.get("action_code")
-                        
+
                         # 下载图像
                         download_success, saved_path, _ = download_and_save_image(
                             logger,
@@ -158,11 +160,14 @@ def restore_metadata_from_remote(logger: logging.Logger, job_list: List[Dict[str
                             None,  # 不传递components
                             normalized_data.get("seed")
                         )
-                        
+
                         if download_success:
                             logger.info(f"已下载并保存任务{job_id}的图像: {saved_path}")
                             # 记录成功任务ID
-                            write_last_succeed_job_id(logger, job_id)
+                            if state_dir:
+                                write_last_succeed_job_id(logger, job_id, state_dir)
+                            else:
+                                logger.warning("state_dir 未提供，无法记录成功任务ID")
                     except Exception as e:
                         logger.warning(f"下载任务{job_id}的图像时出错: {str(e)}")
             else:
