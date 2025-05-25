@@ -8,6 +8,7 @@
 - [安装与设置](#安装与设置)
 - [使用指南](#使用指南)
 - [命令详解](#命令详解)
+- [重要概念区别](#重要概念区别)
 - [配置文件](#配置文件)
 - [图像元数据](#图像元数据)
 - [图像后处理](#图像后处理)
@@ -223,7 +224,7 @@ crc <command> --help
 
 *   **用法:** `crc generate [-c CONCEPT | -p PROMPT] [options...]`
 *   **主要选项:**
-    *   `-c, --concept <key>`: 使用的概念键。
+    *   `-c, --concept <key>`: **创建并保存新概念**的键名。与 `--prompt` 一起使用时，会调用 OpenAI API 生成完整概念并保存到配置文件。
     *   `-p, --prompt <text>`: 自定义提示词。
     *   `-var, --variation <key...>`: 使用的变体键 (可多个)。
     *   `--style <key...>`: 使用的全局风格键 (可多个)。
@@ -238,8 +239,8 @@ crc <command> --help
 
 *   **用法:** `crc create [-c CONCEPT | -p PROMPT] [options...]`
 *   **主要选项:**
-    *   `-c, --concept <key>`: 使用的概念键。
-    *   `-p, --prompt <text>`: 自定义提示词。
+    *   `-c, --concept <key>`: **使用已存在概念**的键名。从配置文件中读取已保存的概念来生成图像。
+    *   `-p, --prompt <text>`: **直接使用已准备好的提示词**。不经过 AI 解析，直接提交给 Midjourney API。
     *   `-var, --variation <key>`: 使用的变体键 (仅支持一个)。
     *   `--style <key>`: 使用的全局风格键 (仅支持一个)。
     *   `--cref <url_or_path>`: 图像参考 URL 或本地路径 (支持自动上传本地图片)。
@@ -345,6 +346,44 @@ crc <command> --help
 
 ---
 
+## 重要概念区别
+
+### `generate` vs `create` 命令的关键区别
+
+| 方面 | `generate` 命令 | `create` 命令 |
+|------|----------------|---------------|
+| **主要用途** | 生成和管理概念 | 创建图像任务 |
+| **AI 解析** | ✅ 调用 OpenAI API 解析和优化提示词 | ❌ 不调用 AI，直接使用文本 |
+| **概念处理** | `-c` 参数用于**保存新概念** | `-c` 参数用于**使用已存在概念** |
+| **提示词处理** | `-p` 参数会被 AI 解析和优化 | `-p` 参数直接使用，不经过解析 |
+| **输出结果** | 生成优化的提示词文本 | 提交任务并生成图像 |
+| **API 需求** | 需要 OpenAI API 密钥 | 需要 TTAPI 密钥 |
+
+### 典型使用场景
+
+**场景1：创建新概念**
+```bash
+# 使用 generate 创建概念（需要 OpenAI API）
+crc generate --concept "new_concept" --prompt "描述你的想法"
+# AI 会分析并生成完整的概念定义
+```
+
+**场景2：使用已有概念生成图像**
+```bash
+# 使用 create 基于概念生成图像（需要 TTAPI）
+crc create --concept "existing_concept" --prompt "额外描述"
+# 直接拼接文本，不经过 AI 解析
+```
+
+**场景3：直接使用完整提示词**
+```bash
+# 使用 create 直接提交提示词（需要 TTAPI）
+crc create --prompt "完整的 Midjourney 提示词 --ar 16:9 --v 6"
+# 直接提交，不经过任何处理
+```
+
+---
+
 ## 目录结构和配置
 
 ### 系统目录结构
@@ -438,8 +477,23 @@ crc <command> --help
 
 有两种方式添加新的创意概念：
 
-1. **自动生成**：使用 `crc generate --concept <概念名> --prompt "<描述>"` 命令，系统会自动生成概念并保存到 `~/.crc/prompts_config.json`。
+1. **自动生成**：使用 `crc generate --concept <新概念名> --prompt "<描述>"` 命令，系统会调用 OpenAI API 自动生成概念并保存到 `~/.crc/prompts_config.json`。
 2. **手动编辑**：直接编辑 `~/.crc/prompts_config.json` 文件，按照现有格式添加新的概念和变体。
+
+**使用示例**：
+```bash
+# 第一步：创建新概念（使用 generate 命令）
+crc generate --concept "cell_defense" --prompt "细胞防御病毒的场景"
+# 这会调用 OpenAI API 生成概念并保存到配置文件
+
+# 第二步：使用已保存的概念创建图像（使用 create 命令）
+crc create --concept "cell_defense" --prompt "增加一些红色元素"
+# 这会读取已保存的概念，直接拼接用户提示词，然后创建图像
+
+# 或者直接使用完整的提示词创建图像
+crc create --prompt "a detailed cellular defense mechanism against viral infection, red elements, microscopic view --ar 16:9 --v 6"
+# 这会直接使用提供的提示词，不经过任何 AI 解析
+```
 
 ### 生成的文件保存在哪里？
 

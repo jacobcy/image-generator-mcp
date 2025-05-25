@@ -5,6 +5,7 @@ import re
 import uuid
 import requests
 import webbrowser
+from typing import Optional
 
 # 从 utils 导入必要的函数 - 使用统一的元数据管理模块
 from ..utils.metadata_manager import (
@@ -155,7 +156,6 @@ def update_local_job_history(logger, job_id, api_result, metadata_dir: Optional[
         return False
 
 
-from typing import Optional
 def handle_view(
     identifier: Optional[str] = None,
     last_job: bool = False,

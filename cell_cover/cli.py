@@ -5,6 +5,7 @@ import os
 import sys
 import typer
 import json
+import types
 
 import logging
 try:
@@ -30,14 +31,14 @@ from typing import Optional, List
 
 from .utils.config import load_config, get_api_key
 from .utils.log import setup_logging
-from .utils.filesystem_utils import check_and_create_directories, read_last_job_id, write_last_job_id, read_last_succeed_job_id
-from .constants import ACTION_CHOICES, ACTION_DESCRIPTIONS
+from .constants import ACTION_CHOICES
 
 from .commands.create import handle_create
 from .commands.generate import handle_generate
 from .commands.blend import handle_blend
 from .commands.describe import handle_describe
 from .commands.list_cmd import handle_list_concepts, handle_list_variations
+from .commands.list_styles import handle_list_styles
 from .commands.recreate import handle_recreate
 from .commands.select import handle_select
 from .commands.view import handle_view
@@ -192,19 +193,22 @@ def init(
 def list_concepts(verbose: bool = False):
     """List available creative concepts."""
     # Update call to unpack new return values
-    logger, config, _, _, _, _ = common_setup(verbose)
+    _, config, _, _, _, _ = common_setup(verbose)
     handle_list_concepts(config)
 
 @app.command()
 def variations(concept_key: str, verbose: bool = False):
     """List available variations for a specific concept."""
     # Update call to unpack new return values
-    logger, config, _, _, _, _ = common_setup(verbose)
-    class Args: pass
-    args = Args()
-    args.concept_key = concept_key
-    args.verbose = verbose
-    handle_list_variations(config, args)
+    _, config, _, _, _, _ = common_setup(verbose)
+    handle_list_variations(config, concept_key)
+
+@app.command("list-styles")
+def list_styles(verbose: bool = False):
+    """List all available global styles."""
+    # Update call to unpack new return values
+    _, config, _, _, _, _ = common_setup(verbose)
+    handle_list_styles(config)
 
 @app.command()
 def generate(
@@ -224,36 +228,22 @@ def generate(
     """Generate only the Midjourney prompt text (does not submit)."""
     # Update call to unpack new return values
     logger, config, cwd, _, _, output_dir = common_setup(verbose) # Get cwd, output_dir
-    class Args: pass
-    args = Args()
-    args.concept = concept
-    args.prompt = prompt
-    args.variation = variation
-    args.aspect = aspect
-    args.quality = quality
-    args.version = version
-    args.cref = cref
-    args.style = style
-    args.clipboard = clipboard
-    args.save_prompt = save_prompt
-    args.verbose = verbose
-    args.style_degree = style_degree
     handle_generate(
-        prompt=args.prompt,
-        concept=args.concept,
-        variation=args.variation,
-        style=args.style,
-        aspect=args.aspect,
-        quality=args.quality,
-        version=args.version,
-        cref=args.cref,
-        clipboard=args.clipboard,
-        save_prompt=args.save_prompt,
+        prompt=prompt,
+        concept=concept,
+        variation=variation,
+        style=style,
+        aspect=aspect,
+        quality=quality,
+        version=version,
+        cref=cref,
+        clipboard=clipboard,
+        save_prompt=save_prompt,
         config=config,
         logger=logger,
         cwd=cwd,
         output_dir=output_dir,
-        style_degree=args.style_degree
+        style_degree=style_degree
     )
 
 @app.command()
@@ -313,14 +303,14 @@ def recreate(
 ):
     """Recreate an image using a previous job's prompt and seed."""
     # Update call to unpack new return values
-    logger, config, cwd, _, state_dir, metadata_dir = common_setup(verbose) # Get cwd, state_dir, metadata_dir
+    logger, config, cwd, _, state_dir, _ = common_setup(verbose) # Get cwd, state_dir
     api_key = get_api_key(logger)
     if not api_key:
         logger.critical("recreate 命令需要 TTAPI API 密钥")
         print("错误: recreate 命令需要 TTAPI API 密钥 (请设置 TTAPI_API_KEY 或在 .env 中配置)")
         raise typer.Exit(code=1)
-    class Args: pass
-    args = Args()
+
+    args = types.SimpleNamespace()
     args.identifier = identifier
     args.hook_url = hook_url
     args.cref = cref
@@ -333,7 +323,7 @@ def recreate(
         api_key=api_key,
         cwd=cwd, # Pass cwd
         state_dir=state_dir, # Pass state_dir for writing job IDs
-        metadata_dir=metadata_dir # Pass metadata_dir for finding old task info
+        metadata_dir=os.path.join(os.path.expanduser("~"), '.crc', 'metadata') # Pass metadata_dir for finding old task info
     )
 
 @app.command()
@@ -345,11 +335,10 @@ def select(
 ):
     """Split a 4-grid image (from upscale) and save selected parts."""
     # Update call to unpack new return values
-    logger, config, cwd, crc_base_dir, state_dir, default_output_base = common_setup(verbose) # Get cwd, state_dir, default output base
+    logger, _, cwd, crc_base_dir, state_dir, default_output_base = common_setup(verbose) # Get cwd, state_dir, default output base
     metadata_dir = os.path.join(crc_base_dir, 'metadata')
 
-    class Args: pass
-    args = Args()
+    args = types.SimpleNamespace()
     args.identifier = identifier
     args.select_parts = select_parts
     args.output_dir = output_dir # User-provided output dir
@@ -377,8 +366,7 @@ def view(
     verbose: bool = typer.Option(False, "--verbose", help="显示详细输出")
 ):
     """View an image or task metadata (local or remote)."""
-    logger, config, cwd, crc_base_dir, state_dir, output_dir = common_setup(verbose)
-    api_key = get_api_key(logger) if remote or history else None
+    _, _, _, crc_base_dir, state_dir, _ = common_setup(verbose)
 
     # 计算元数据目录路径
     metadata_dir = os.path.join(crc_base_dir, 'metadata')
@@ -406,15 +394,14 @@ def blend(
 ):
     """Blend up to 3 images (local files or task results)."""
     # Update call to unpack new return values
-    logger, config, cwd, crc_base_dir, state_dir, _ = common_setup(verbose)
+    logger, _, cwd, crc_base_dir, state_dir, _ = common_setup(verbose)
     api_key = get_api_key(logger) # Blending might involve API call
     if not api_key:
         logger.critical("blend 命令需要 TTAPI API 密钥")
         print("错误: blend 命令需要 TTAPI API 密钥 (请设置 TTAPI_API_KEY 或在 .env 中配置)")
         raise typer.Exit(code=1)
 
-    class Args: pass
-    args = Args()
+    args = types.SimpleNamespace()
     args.identifiers = identifiers
     args.title = title
     args.weights = weights
@@ -433,40 +420,25 @@ def blend(
 
 @app.command()
 def describe(
-    identifier: Optional[str] = None,
-    last_job: bool = False,
-    last_succeed: bool = False,
-    text_only: bool = False,
-    components: bool = False,
-    save: bool = False,
-    language: Optional[str] = None,
+    image_path_or_url: str = typer.Argument(..., help="本地图片路径或可公开访问的图片 URL"),
+    hook_url: Optional[str] = typer.Option(None, "--hook-url", help="Webhook 回调地址"),
     verbose: bool = False
 ):
-    """Describe an image using OpenAI CLIP or local task metadata."""
+    """Describe an image using TTAPI."""
     # Update call to unpack new return values
-    logger, config, cwd, crc_base_dir, state_dir, output_dir = common_setup(verbose)
-    openai_api_key = get_api_key(logger, service="openai") # Need OpenAI key for describe
+    logger, _, _, _, _, _ = common_setup(verbose)
+    api_key = get_api_key(logger) # Need TTAPI key for describe
+    if not api_key:
+        logger.critical("describe 命令需要 TTAPI API 密钥")
+        print("错误: describe 命令需要 TTAPI API 密钥 (请设置 TTAPI_API_KEY 或在 .env 中配置)")
+        raise typer.Exit(code=1)
 
-    class Args: pass
-    args = Args()
-    args.identifier = identifier
-    args.last_job = last_job
-    args.last_succeed = last_succeed
-    args.text_only = text_only
-    args.components = components
-    args.save = save
-    args.language = language
-    args.verbose = verbose
-
-    # Pass necessary paths and keys
+    # Pass necessary parameters
     handle_describe(
-        args=args,
+        image_path_or_url=image_path_or_url,
+        hook_url=hook_url,
         logger=logger,
-        openai_api_key=openai_api_key,
-        cwd=cwd,
-        crc_base_dir=crc_base_dir, # For finding task images/metadata
-        state_dir=state_dir, # For resolving task IDs
-        output_dir=output_dir # For saving description
+        api_key=api_key
     )
 
 @app.command("list-tasks")
@@ -481,7 +453,7 @@ def list_tasks(
 ):
     """List and filter tasks based on local metadata."""
     # Update call to unpack new return values
-    logger, config, cwd, crc_base_dir, state_dir, _ = common_setup(verbose)
+    logger, _, _, crc_base_dir, _, _ = common_setup(verbose)
 
     # 如果remote为True，需要获取API密钥
     api_key = None
@@ -518,7 +490,7 @@ def list_alias(
 ):
     """Alias for list-tasks."""
     # Update call to unpack new return values
-    logger, config, cwd, crc_base_dir, state_dir, _ = common_setup(verbose)
+    logger, _, _, crc_base_dir, _, _ = common_setup(verbose)
 
     # 如果remote为True，需要获取API密钥
     api_key = None
@@ -564,8 +536,7 @@ def action(
         print("错误: action 命令需要 TTAPI API 密钥 (请设置 TTAPI_API_KEY 或在 .env 中配置)")
         raise typer.Exit(code=1)
 
-    class Args: pass
-    args = Args()
+    args = types.SimpleNamespace()
     args.action_code = action_code
     args.identifier = identifier
     args.last_job = last_job
@@ -591,7 +562,7 @@ def action(
 @app.command()
 def sync(verbose: bool = False):
     """Synchronize local task status with the remote API and download completed images."""
-    logger, config, cwd, crc_base_dir, state_dir, output_dir = common_setup(verbose)
+    logger, _, _, crc_base_dir, state_dir, output_dir = common_setup(verbose)
     api_key = get_api_key(logger)
     if not api_key:
         logger.critical("sync 命令需要 TTAPI API 密钥")
