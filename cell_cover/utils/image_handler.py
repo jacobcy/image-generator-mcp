@@ -16,6 +16,8 @@ from typing import Optional
 import requests
 import uuid
 import json
+import io
+import base64
 
 # 从 utils 导入必要的函数 - 使用统一的元数据管理模块
 from .metadata_manager import save_image_metadata
@@ -24,19 +26,19 @@ from .filesystem_utils import (
 )
 
 # 定义 IMAGE_DIR 本地 (移除 - 应动态确定)
-# IMAGE_DIR = 'images'  
+# IMAGE_DIR = 'images'
 
 logger = logging.getLogger(__name__)
 
 def save_image(image, filename=None, directory=None):
     """
     保存图像到指定目录。
-    
+
     Args:
         image: PIL Image对象或numpy数组
         filename: 文件名，如果未提供则使用时间戳
         directory: 保存目录，如果未提供则使用默认图像目录
-        
+
     Returns:
         str: 保存的文件路径
     """
@@ -44,17 +46,17 @@ def save_image(image, filename=None, directory=None):
         # 确保图像是PIL Image对象
         if isinstance(image, np.ndarray):
             image = Image.fromarray(image)
-        
+
         # 设置默认目录 - 这里也应该移除，由调用者指定
         # if directory is None:
         #     directory = IMAGE_DIR # Removed dependency on global constant
         if directory is None:
             logger.error("save_image: 必须提供保存目录参数 (directory)")
             return None
-        
+
         # 确保目录存在
         ensure_directories(logger, directory)
-        
+
         # 如果未提供文件名，使用时间戳创建
         if filename is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -65,16 +67,16 @@ def save_image(image, filename=None, directory=None):
             # 确保有扩展名
             if not filename.lower().endswith(('.png', '.jpg', '.jpeg')):
                 filename += '.png'
-        
+
         # 构建完整路径
         filepath = os.path.join(directory, filename)
-        
+
         # 保存图像
         image.save(filepath)
         logger.info(f"图像已保存至: {filepath}")
-        
+
         return filepath
-    
+
     except Exception as e:
         logger.error(f"保存图像时出错: {e}")
         return None
@@ -82,10 +84,10 @@ def save_image(image, filename=None, directory=None):
 def load_image(filepath):
     """
     从文件路径加载图像。
-    
+
     Args:
         filepath: 图像文件路径
-        
+
     Returns:
         PIL.Image: 加载的图像对象，失败则返回None
     """
@@ -93,10 +95,10 @@ def load_image(filepath):
         if not os.path.exists(filepath):
             logger.error(f"图像文件不存在: {filepath}")
             return None
-        
+
         image = Image.open(filepath)
         return image
-    
+
     except Exception as e:
         logger.error(f"加载图像时出错: {e}")
         return None
@@ -104,20 +106,20 @@ def load_image(filepath):
 def resize_image(image, width=None, height=None, maintain_aspect=True):
     """
     调整图像尺寸。
-    
+
     Args:
         image: PIL Image对象
         width: 目标宽度
         height: 目标高度
         maintain_aspect: 是否保持纵横比
-        
+
     Returns:
         PIL.Image: 调整后的图像
     """
     try:
         if width is None and height is None:
             return image
-        
+
         if maintain_aspect:
             if width is None:
                 # 根据高度等比例缩放
@@ -131,7 +133,7 @@ def resize_image(image, width=None, height=None, maintain_aspect=True):
                 # 当同时指定宽高时，使用适合的尺寸并保持纵横比
                 img_aspect = image.width / image.height
                 target_aspect = width / height
-                
+
                 if img_aspect > target_aspect:
                     # 图像较宽，以宽度为基准
                     new_width = width
@@ -140,11 +142,11 @@ def resize_image(image, width=None, height=None, maintain_aspect=True):
                     # 图像较高，以高度为基准
                     new_height = height
                     new_width = int(height * img_aspect)
-                
+
                 width, height = new_width, new_height
-        
+
         return image.resize((width, height), Image.LANCZOS)
-    
+
     except Exception as e:
         logger.error(f"调整图像尺寸时出错: {e}")
         return image
@@ -180,7 +182,7 @@ def download_and_save_image(
         seed: API结果中的种子值（可选）
 
     Returns:
-        tuple[bool, Optional[str], Optional[str]]: 
+        tuple[bool, Optional[str], Optional[str]]:
           (成功状态, 文件路径或错误信息, 使用的种子)
     """
     logger.debug(f"进入 download_and_save_image, job_id={job_id}, url='{image_url[:50]}...'")
@@ -188,26 +190,19 @@ def download_and_save_image(
     if not image_url:
         logger.error("图像URL为空，无法下载。")
         return False, "url_empty", None
-    
-    # 获取用户主目录下的.crc目录
+
+    # 图片保存到当前工作目录，而不是 ~/.crc 目录
+    # 这样用户可以在不同项目目录中工作，图片会保存在对应的项目目录中
+    current_dir = os.getcwd()
+
+    # 创建基于概念的子目录在当前工作目录下
+    concept_dir = concept if concept and concept != 'unknown' else 'general'
+    save_dir = os.path.join(current_dir, 'images', concept_dir)
+
+    # 获取 ~/.crc 目录用于元数据保存
     home_dir = os.path.expanduser("~")
     crc_base_dir = os.path.join(home_dir, '.crc')
-    
-    # 读取配置获取输出目录
-    output_dir = None
-    try:
-        with open(os.path.join(crc_base_dir, 'state', 'config.json'), 'r') as f:
-            import json
-            user_config = json.load(f)
-            output_dir = user_config.get('output_dir')
-    except (FileNotFoundError, json.JSONDecodeError):
-        # 如果配置不存在或解析失败，使用默认值
-        output_dir = os.path.join(crc_base_dir, 'output')
-    
-    # 创建基于概念的子目录
-    concept_dir = concept if concept and concept != 'unknown' else 'general'
-    save_dir = os.path.join(output_dir, concept_dir)
-    
+
     # 生成文件名
     if not expected_filename or expected_filename == job_id + '.png':
         # 如果没有提供预期文件名，或者只是默认的job_id，则生成一个更好的文件名
@@ -220,10 +215,10 @@ def download_and_save_image(
         # 确保文件名有扩展名
         if not filename.lower().endswith(('.png', '.jpg', '.jpeg')):
             filename += '.png'
-    
+
     # 构建完整路径
     filepath = os.path.join(save_dir, filename)
-    
+
     logger.info(f"准备下载图像从 {image_url} 到 {filepath}")
 
     # 确保目录存在
@@ -241,7 +236,7 @@ def download_and_save_image(
             for chunk in response.iter_content(chunk_size=8192):
                 f.write(chunk)
         logger.info(f"图像下载成功并保存到: {filepath}")
-        
+
         # 保存元数据
         metadata_dir = os.path.join(crc_base_dir, 'metadata')
         if metadata_dir:
@@ -269,9 +264,9 @@ def download_and_save_image(
                 # 继续，因为图像下载已成功
         else:
             logger.warning("未提供元数据目录，跳过元数据保存")
-            
+
         return True, filepath, seed
-        
+
     except requests.exceptions.HTTPError as e:
         status_code = e.response.status_code if hasattr(e, 'response') else 'unknown'
         logger.error(f"HTTP错误 ({status_code}): {str(e)}")
@@ -285,3 +280,21 @@ def download_and_save_image(
     except Exception as e:
         logger.error(f"下载或保存图像时发生未知错误: {str(e)}")
         return False, "unknown_error", None
+
+def compress_image(image_path: str) -> bytes:
+    try:
+        img = Image.open(image_path)
+        img = img.convert('RGB')  # 转换为 RGB 以支持 JPEG
+        temp_file = io.BytesIO()
+        img.save(temp_file, format='JPEG', quality=80)  # 压缩为 JPEG，质量 80
+        temp_file.seek(0)
+        return temp_file.getvalue()
+    except Exception as e:
+        logger.error(f'压缩图像时出错: {e}')
+        raise
+
+def encode_image_to_base64(image_path: str) -> str:
+    compressed_bytes = compress_image(image_path)  # 先压缩
+    encoded_string = base64.b64encode(compressed_bytes).decode('utf-8')
+    mime_type = 'image/jpeg'  # 由于压缩为 JPEG
+    return f'data:{mime_type};base64,{encoded_string}'

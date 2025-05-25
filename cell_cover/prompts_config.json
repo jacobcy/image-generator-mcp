@@ -99,6 +99,15 @@
         "Historical_Architecture_Focus": "Wuhan, Yellow Crane Tower, ancient architecture, cultural heritage, serene morning, detailed textures, historical atmosphere, soft lighting",
         "Modern_Nightlife_Focus": "Wuhan nightlife, Han Street, colorful neon lights, dynamic crowds, modern architecture, urban exploration, vibrant, night photography style"
       }
+    },
+    "kev": {
+      "name": "KTV乐聚",
+      "description": "年轻朋友们在充满彩色射灯的时尚KTV包厢内唱歌，氛围欢乐轻松，展现了夜间的室内社交乐趣。",
+      "midjourney_prompt": "vibrant KTV scene, friends gathered around singer with neon highlights, enjoying the moment with dynamic energy, engaging background with lyrical display, cozy seating arrangement",
+      "variations": {
+        "variation1_name": "enhanced neon reflections, added emotional intensity",
+        "variation2_name": "softened indoor lighting, focusing on intimate group interactions"
+      }
     }
   },
   "aspect_ratios": {

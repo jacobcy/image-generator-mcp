@@ -16,13 +16,13 @@ from typing import Optional
 
 # Note: logger needs to be passed into the functions
 
-def load_config(logger: logging.Logger, default_config_path: str, local_config_path: str) -> Optional[dict]:
-    """加载配置文件，优先使用默认配置，并允许本地配置覆盖/合并。
+def load_config(logger: logging.Logger, default_config_path: str, user_config_path: str) -> Optional[dict]:
+    """加载配置文件，优先使用默认配置，并允许用户配置覆盖/合并。
 
     Args:
         logger: The logging object.
         default_config_path: Path to the default configuration file (usually in the install dir).
-        local_config_path: Path to the local configuration file (in the current working directory).
+        user_config_path: Path to the user configuration file (in ~/.crc directory).
 
     Returns:
         A dictionary containing the final configuration, or None if the default config fails.
@@ -47,16 +47,16 @@ def load_config(logger: logging.Logger, default_config_path: str, local_config_p
         print(f"错误：加载默认配置文件时出错 - {default_config_path} - {e}")
         return None # Cannot proceed
 
-    # 2. Load local config if it exists and merge/override
-    if os.path.exists(local_config_path):
+    # 2. Load user config if it exists and merge/override
+    if os.path.exists(user_config_path):
         try:
-            logger.debug(f"发现本地配置文件，尝试加载: {local_config_path}")
-            with open(local_config_path, 'r', encoding='utf-8') as f:
-                local_config = json.load(f)
-                logger.info(f"本地配置文件加载成功: {local_config_path}")
-                # Merge strategy: Simple dictionary update (local overrides default)
+            logger.debug(f"发现用户配置文件，尝试加载: {user_config_path}")
+            with open(user_config_path, 'r', encoding='utf-8') as f:
+                user_config = json.load(f)
+                logger.info(f"用户配置文件加载成功: {user_config_path}")
+                # Merge strategy: Simple dictionary update (user overrides default)
                 # For deeper merging, a recursive merge function would be needed.
-                # Example: config.update(local_config)
+                # Example: config.update(user_config)
                 # Let's implement a basic deep merge for top-level keys like 'concepts'
                 def deep_merge(source, destination):
                     """Recursively merges source dict into destination dict."""
@@ -70,17 +70,17 @@ def load_config(logger: logging.Logger, default_config_path: str, local_config_p
                     return destination
 
                 # Perform the deep merge
-                config = deep_merge(local_config, copy.deepcopy(config)) # Use deepcopy of base
-                logger.info(f"本地配置已合并入默认配置。")
+                config = deep_merge(user_config, copy.deepcopy(config)) # Use deepcopy of base
+                logger.info(f"用户配置已合并入默认配置。")
 
         except json.JSONDecodeError as e:
-            logger.warning(f"警告：本地配置文件格式错误 - {local_config_path} - {e}。将忽略本地配置。")
-            print(f"警告：本地配置文件格式错误 - {local_config_path} - {e}。将忽略本地配置。")
+            logger.warning(f"警告：用户配置文件格式错误 - {user_config_path} - {e}。将忽略用户配置。")
+            print(f"警告：用户配置文件格式错误 - {user_config_path} - {e}。将忽略用户配置。")
         except Exception as e:
-            logger.warning(f"警告：加载本地配置文件时出错 - {local_config_path} - {e}。将忽略本地配置。")
-            print(f"警告：加载本地配置文件时出错 - {local_config_path} - {e}。将忽略本地配置。")
+            logger.warning(f"警告：加载用户配置文件时出错 - {user_config_path} - {e}。将忽略用户配置。")
+            print(f"警告：加载用户配置文件时出错 - {user_config_path} - {e}。将忽略用户配置。")
     else:
-        logger.debug(f"本地配置文件未找到: {local_config_path}")
+        logger.debug(f"用户配置文件未找到: {user_config_path}")
 
     # Log final concept count
     if config:

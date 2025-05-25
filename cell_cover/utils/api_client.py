@@ -11,11 +11,10 @@ import json
 import time
 import logging
 import os
-import mimetypes
-import base64
 from typing import Optional, Dict, Any, List, Tuple
 
 import requests
+from ..utils.image_handler import encode_image_to_base64  # 假设此函数已存在或需添加
 
 # --- API Constants ---
 TTAPI_BASE_URL = "https://api.ttapi.io/midjourney/v1"
@@ -573,14 +572,9 @@ def call_describe_api(
         logger.info(f"使用提供的 URL 进行 Describe: {image_path_or_url}")
     elif os.path.exists(image_path_or_url):
         try:
-            mime_type, _ = mimetypes.guess_type(image_path_or_url)
-            if not mime_type or not mime_type.startswith('image'):
-                logger.warning(f"无法确定图片类型或文件不是图片: {image_path_or_url} (MIME: {mime_type}) - 尝试使用 image/png")
-                mime_type = 'image/png' # Default assumption
-
-            with open(image_path_or_url, "rb") as image_file:
-                encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
-                payload['base64'] = f"data:{mime_type};base64,{encoded_string}"
+            encoded_string = encode_image_to_base64(image_path_or_url)  # 替换为新函数
+            mime_type = 'image/png'  # 或从新函数获取
+            payload['base64'] = encoded_string
             logger.info(f"已编码本地图片用于 Describe: {image_path_or_url}")
         except Exception as e:
             logger.error(f"编码本地图片时出错 {image_path_or_url}: {e}")

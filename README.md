@@ -44,12 +44,12 @@
 2. 运行安装脚本安装依赖：
 
 ```bash
-cd /path/to/your/project/cell_cover # 进入项目目录
+cd /path/to/your/project # 进入项目目录
 # 确保 requirements.txt 存在
-uv pip install -r requirements.txt # 或者 pip install -r requirements.txt
+uv tool install -e . # 安装依赖
 ```
 
-3. 设置 TTAPI API 密钥：
+3. 设置 TTAPI API 密钥(用于生成图像)：
 
 ```bash
 # 方法一：设置环境变量 (推荐)
@@ -59,7 +59,15 @@ export TTAPI_API_KEY="your_api_key_here"
 echo "TTAPI_API_KEY=your_api_key_here" > .env
 ```
 
-4. (可选) 如果您想在任何目录下都能方便地运行，可以考虑将 `crc` 命令（指向 `cell_cover/cli.py` 的脚本或别名）添加到系统的 PATH 环境变量中。
+4. 设置 openai 密钥 (用于生成提示词)：
+
+```bash
+# 方法一：设置环境变量 (推荐)
+export OPENAI_API_KEY="your_api_key_here"
+
+# 方法二：创建 .env 文件 (在项目根目录下)
+echo "OPENAI_API_KEY=your_api_key_here" >> .env
+```
 
 ## 使用指南
 
@@ -101,7 +109,7 @@ crc <command> --help
 
 ### `generate`
 
-仅生成 Midjourney 提示词文本，不提交任务。
+仅生成 Midjourney 提示词文本，不提交任务（需要使用openai key）。
 
 *   **用法:** `crc generate [-c CONCEPT | -p PROMPT] [options...]`
 *   **主要选项:**
@@ -161,10 +169,10 @@ crc <command> --help
 *   **示例:**
     ```bash
     # 对上一个任务执行 V1 操作并等待完成
-    crc action variation1 --wait 
+    crc action variation1 --wait
 
     # 对指定 Job ID 执行 U1 操作，使用 relax 模式
-    crc action upsample1 abc-123-def-456 --mode relax 
+    crc action upsample1 abc-123-def-456 --mode relax
     ```
 
 ### `select`
@@ -227,14 +235,59 @@ crc <command> --help
 
 ---
 
-## 配置文件
+## 目录结构和配置
 
-*   **`prompts_config.json`**: 存储所有预设的创意概念、变体、全局风格、宽高比、质量和版本设置。您可以编辑此文件进行自定义。
-*   **`.config/cell_cover/last_job.json`**: (由程序自动创建/更新) 存储上一次成功提交的任务 (`create`, `recreate`, `action`) 的 Job ID，用于支持链式操作 (如 `crc action --last-job` 或省略 `identifier` 的 `select`/`view`)。
+### 系统目录结构
+
+系统使用以下目录结构来管理不同类型的数据：
+
+#### 全局配置目录 (`~/.crc/`)
+```
+~/.crc/
+├── prompts_config.json     # 用户自定义的概念配置
+├── logs/                   # 系统日志文件
+├── state/                  # 系统状态文件
+│   └── config.json        # 用户配置（如输出目录设置）
+└── metadata/              # 全局任务元数据
+    └── images_metadata.json
+```
+
+#### 项目工作目录（当前目录）
+```
+./your-project/
+├── images/                # 生成的图片文件
+│   ├── concept1/         # 按概念分类的图片
+│   ├── concept2/
+│   └── general/          # 未指定概念的图片
+├── prompts/              # 保存的提示词文件
+│   ├── concept1.txt
+│   └── concept2.txt
+└── .env                  # 项目级API密钥配置（可选）
+```
+
+### 配置文件说明
+
+#### 全局配置
+*   **`~/.crc/prompts_config.json`**: 存储所有预设的创意概念、变体、全局风格、宽高比、质量和版本设置。通过 `crc generate` 命令生成的新概念会自动保存到此文件。
+*   **`~/.crc/state/config.json`**: 存储用户偏好设置，如自定义输出目录等。
+
+#### 项目级文件
+*   **`./images/`**: 当前项目的图片文件，按概念自动分类到子目录中。
+*   **`./prompts/`**: 使用 `--save-prompt` 选项保存的提示词文件。
+*   **`./.env`**: 项目级API密钥配置文件（可选，会覆盖全局环境变量）。
+
+### 数据分离原则
+
+| 数据类型 | 保存位置 | 作用域 | 说明 |
+|---------|---------|--------|------|
+| **配置文件** | `~/.crc/prompts_config.json` | 全局 | 跨项目共享的概念和设置 |
+| **元数据** | `~/.crc/metadata/` | 全局 | 所有任务的历史记录和状态 |
+| **图片文件** | `./images/{concept}/` | 项目 | 每个项目独立管理图片 |
+| **提示词文件** | `./prompts/` | 项目 | 与项目代码一起版本控制 |
 
 ## 图像元数据
 
-生成的图像元数据默认存储在 `cell_cover/metadata/images_metadata.json` 文件中。每个图像的元数据包含以下信息：
+生成的图像元数据存储在 `~/.crc/metadata/images_metadata.json` 文件中。每个图像的元数据包含以下信息：
 
 - **id**: 唯一标识符 (内部生成)
 - **job_id**: TTAPI 任务 ID
@@ -273,11 +326,38 @@ crc <command> --help
 
 ### 如何添加新的创意概念？
 
-编辑项目根目录下的 `prompts_config.json` 文件，按照现有格式添加新的概念和变体。
+有两种方式添加新的创意概念：
 
-### 提示词生成后在哪里查看？
+1. **自动生成**：使用 `crc generate --concept <概念名> --prompt "<描述>"` 命令，系统会自动生成概念并保存到 `~/.crc/prompts_config.json`。
+2. **手动编辑**：直接编辑 `~/.crc/prompts_config.json` 文件，按照现有格式添加新的概念和变体。
 
-生成的提示词会直接用于 API 调用。如果需要查看或保存提示词文本，可以在 `create` 或 `generate` 命令中使用 `--save-prompt` 选项，提示词将保存在 `cell_cover/outputs` 目录中。
+### 生成的文件保存在哪里？
+
+- **图片文件**：保存在当前工作目录的 `./images/{concept}/` 子目录中
+- **提示词文件**：使用 `--save-prompt` 选项时，保存在当前工作目录的 `./prompts/` 目录中
+- **元数据**：保存在 `~/.crc/metadata/images_metadata.json` 中，用于全局任务管理
+
+### 如何在不同项目中使用？
+
+1. 切换到项目目录：`cd /path/to/your-project`
+2. 运行命令：`crc create --concept <概念> --prompt "<提示>"`
+3. 图片会保存到该项目目录下的 `images/` 文件夹中
+4. 配置和概念在所有项目间共享
+
+**使用示例**：
+```bash
+# 项目A
+cd /Users/username/projectA
+crc create --concept ca --prompt "细胞防御病毒"
+# 图片保存到: /Users/username/projectA/images/ca/
+
+# 项目B
+cd /Users/username/projectB
+crc create --concept ca --prompt "细胞防御病毒"
+# 图片保存到: /Users/username/projectB/images/ca/
+
+# 两个项目使用相同的概念配置，但图片分别保存在各自的目录中
+```
 
 ### 如何获取最佳效果？
 
@@ -292,10 +372,20 @@ crc <command> --help
 1. 检查 API 密钥是否正确设置 (环境变量 `TTAPI_API_KEY` 或 `.env` 文件)。
 2. 确认 API 配额是否充足。
 3. 检查网络连接。
-4. 查看 `cell_cover/logs/app.log` 文件获取详细错误信息。
+4. 查看 `~/.crc/logs/` 目录中的日志文件获取详细错误信息。
 5. 使用 `crc action --list` 确认操作代码是否正确。
 6. 尝试不同的 `--mode` (例如从 `relax` 切换到 `fast`)。
 
+### 如何初始化系统？
+
+首次使用前需要运行初始化命令：
+
+```bash
+crc init
+```
+
+这会在 `~/.crc/` 目录下创建必要的目录结构和配置文件。可以使用 `--output-dir` 选项指定自定义的默认输出目录。
+
 ---
 
-如有任何问题或建议，请联系项目维护者。 
+如有任何问题或建议，请联系项目维护者。

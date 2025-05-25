@@ -55,7 +55,7 @@ def common_setup(verbose: bool):
     """执行通用的设置步骤，初始化日志、配置和基于用户主目录的目录。
 
     Returns:
-        Tuple[logging.Logger, dict, str, str, str, str]: 
+        Tuple[logging.Logger, dict, str, str, str, str]:
             logger, config, cwd, crc_base_dir, state_dir, output_dir
     """
     try:
@@ -64,13 +64,13 @@ def common_setup(verbose: bool):
 
         # 获取用户主目录
         home_dir = os.path.expanduser("~")
-        
+
         # --- Define and ensure home-based directories ---
         crc_base_dir = os.path.join(home_dir, '.crc') # 放在用户主目录下
         log_dir = os.path.join(crc_base_dir, 'logs')
         state_dir = os.path.join(crc_base_dir, 'state')
         metadata_dir = os.path.join(crc_base_dir, 'metadata')
-        
+
         # 检查是否已初始化
         if not os.path.exists(crc_base_dir):
             print(f"错误：未找到 .crc 目录，请先运行 'crc init' 初始化必要的目录。")
@@ -95,14 +95,14 @@ def common_setup(verbose: bool):
         logger.debug(f"State directory: {state_dir}")
         logger.debug(f"Metadata directory: {metadata_dir}")
 
-        # --- Load config: default from install dir, override/merge with CWD config ---
+        # --- Load config: default from install dir, override/merge with user config in ~/.crc ---
         default_config_path = os.path.join(CELL_COVER_DIR, 'prompts_config.json')
-        local_config_path = os.path.join(cwd, 'prompts_config.json') # Config in CWD
+        user_config_path = os.path.join(crc_base_dir, 'prompts_config.json') # Config in ~/.crc
         logger.debug(f"Default config path: {default_config_path}")
-        logger.debug(f"Local config path (override): {local_config_path}")
+        logger.debug(f"User config path (override): {user_config_path}")
 
-        # Assuming load_config is modified/designed to check local_config_path and merge/override
-        config = load_config(logger, default_config_path, local_config_path)
+        # Assuming load_config is modified/designed to check user_config_path and merge/override
+        config = load_config(logger, default_config_path, user_config_path)
         if config is None: # load_config should return None on critical failure
             logger.critical("无法加载必要的配置文件。请检查默认配置是否存在且格式正确。")
             # Logger might not be fully set up, so print as well
@@ -119,7 +119,7 @@ def common_setup(verbose: bool):
         except (FileNotFoundError, json.JSONDecodeError):
             # 如果文件不存在或解析失败，使用默认值
             output_dir = os.path.join(crc_base_dir, 'output')
-            
+
         # 确保 output 目录存在
         os.makedirs(output_dir, exist_ok=True)
         logger.debug(f"Output directory: {output_dir}")
@@ -136,46 +136,46 @@ def init(
     force: bool = typer.Option(False, "--force", "-f", help="强制重新初始化，覆盖现有设置")
 ):
     """初始化必要的目录结构，设置输出路径。"""
-    
+
     # 获取用户主目录
     home_dir = os.path.expanduser("~")
-    
+
     # 创建 .crc 目录结构
     crc_base_dir = os.path.join(home_dir, '.crc')
     log_dir = os.path.join(crc_base_dir, 'logs')
     state_dir = os.path.join(crc_base_dir, 'state')
     metadata_dir = os.path.join(crc_base_dir, 'metadata')
-    
+
     # 检查是否已初始化且不是强制模式
     if os.path.exists(crc_base_dir) and not force:
         print(f"警告：.crc 目录已存在于 {crc_base_dir}。若要重新初始化，请使用 --force 选项。")
         return 0
-    
+
     # 创建目录结构
     try:
         os.makedirs(crc_base_dir, exist_ok=True)
         os.makedirs(log_dir, exist_ok=True)
         os.makedirs(state_dir, exist_ok=True)
         os.makedirs(metadata_dir, exist_ok=True)
-        
+
         # 如果未指定输出目录，使用默认路径
         if not output_dir:
             output_dir = os.path.join(crc_base_dir, 'output')
-        
+
         # 确保输出目录存在
         os.makedirs(output_dir, exist_ok=True)
-        
+
         # 创建空的 images_metadata.json 文件
         metadata_file = os.path.join(metadata_dir, 'images_metadata.json')
         if not os.path.exists(metadata_file) or force:
             with open(metadata_file, 'w') as f:
                 json.dump({"images": [], "version": "1.0"}, f, indent=4, ensure_ascii=False)
             print(f"  已创建元数据文件: {metadata_file}")
-        
+
         # 保存用户配置
         with open(os.path.join(state_dir, 'config.json'), 'w') as f:
             json.dump({'output_dir': output_dir}, f)
-            
+
         print(f"初始化成功！")
         print(f"  基本目录: {crc_base_dir}")
         print(f"  日志目录: {log_dir}")
@@ -183,7 +183,7 @@ def init(
         print(f"  元数据目录: {metadata_dir}")
         print(f"  输出目录: {output_dir}")
         return 0
-        
+
     except Exception as e:
         print(f"错误：初始化失败，原因：{str(e)}")
         return 1
@@ -281,7 +281,7 @@ def create(
         logger.critical("create 命令需要 TTAPI API 密钥")
         print("错误: create 命令需要 TTAPI API 密钥 (请设置 TTAPI_API_KEY 或在 .env 中配置)")
         raise typer.Exit(code=1)
-    
+
     # Pass cwd and state_dir
     handle_create(
         config=config,
@@ -379,10 +379,10 @@ def view(
     """View an image or task metadata (local or remote)."""
     logger, config, cwd, crc_base_dir, state_dir, output_dir = common_setup(verbose)
     api_key = get_api_key(logger) if remote or history else None
-    
+
     # 计算元数据目录路径
     metadata_dir = os.path.join(crc_base_dir, 'metadata')
-    
+
     handle_view(
         identifier=identifier,
         last_job=last_job,
@@ -482,7 +482,7 @@ def list_tasks(
     """List and filter tasks based on local metadata."""
     # Update call to unpack new return values
     logger, config, cwd, crc_base_dir, state_dir, _ = common_setup(verbose)
-    
+
     # 如果remote为True，需要获取API密钥
     api_key = None
     if remote:
@@ -597,9 +597,9 @@ def sync(verbose: bool = False):
         logger.critical("sync 命令需要 TTAPI API 密钥")
         print("错误: sync 命令需要 TTAPI API 密钥 (请设置 TTAPI_API_KEY 或在 .env 中配置)")
         raise typer.Exit(code=1)
-    
+
     metadata_dir = os.path.join(crc_base_dir, 'metadata')
-    
+
     handle_sync(
         logger=logger,
         api_key=api_key,

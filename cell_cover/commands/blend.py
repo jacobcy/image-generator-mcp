@@ -1,10 +1,8 @@
 # -*- coding: utf-8 -*-
 import os
-import base64
-import mimetypes
 import logging
-import uuid
 from typing import List, Optional
+from PIL import Image  # 添加新导入
 
 # 从 utils 导入必要的函数 - 使用统一的元数据管理模块
 from ..utils.metadata_manager import save_image_metadata
@@ -14,7 +12,7 @@ from ..utils.api import normalize_api_response
 from ..utils.api_client import call_blend_api, poll_for_result
 # from ..utils.api import call_blend_api, poll_for_result, normalize_api_response # 旧的导入方式
 
-from ..utils.image_handler import download_and_save_image
+from ..utils.image_handler import download_and_save_image, encode_image_to_base64
 from ..utils.image_metadata import load_all_metadata, _build_metadata_index
 from ..utils.metadata_manager import _generate_expected_filename
 
@@ -41,15 +39,10 @@ def handle_blend(
             print(f"错误：提供的图片路径不存在: {img_path}")
             return 1
         try:
-            mime_type, _ = mimetypes.guess_type(img_path)
-            if not mime_type or not mime_type.startswith('image'):
-                logger.warning(f"无法确定图片类型或文件不是图片: {img_path} (MIME: {mime_type}) - 正在尝试...")
-                mime_type = 'image/png' # Default assumption
-
-            with open(img_path, "rb") as image_file:
-                encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
-                base64_images.append(f"data:{mime_type};base64,{encoded_string}")
-            logger.info(f"已编码图片: {img_path}")
+            img = Image.open(img_path)  # 新添加：打开图片
+            encoded_string = encode_image_to_base64(img_path)  # 替换为新函数
+            base64_images.append(encoded_string)
+            logger.info(f"已压缩并编码图片: {img_path}")
         except Exception as e:
             logger.error(f"编码图片时出错 {img_path}: {e}")
             print(f"错误：编码图片时出错 {img_path}: {e}")
