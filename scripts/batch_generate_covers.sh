@@ -6,12 +6,13 @@
 #
 # **重要：此脚本必须从项目根目录执行**
 # 例如: cd /path/to/project/root && ./scripts/batch_generate_covers.sh <pattern>
+# 生成的图片将保存在当前项目目录下的 ./images/{concept}/ 子目录中
 
 # --- 配置 ---
-# 配置文件相对于项目根目录的路径
-CONFIG_FILE="cell_cover/prompts_config.json"
+# 配置文件路径 (全局配置文件)
+CONFIG_FILE="$HOME/.crc/prompts_config.json"
 # Python 模块路径 (使用 crc 命令简化)
-# MODULE_PATH="cell_cover.generate_cover" 
+# MODULE_PATH="cell_cover.generate_cover"
 CRC_COMMAND="crc" # 使用 crc 命令
 
 # 错误计数器上限
@@ -59,7 +60,8 @@ echo "'$CRC_COMMAND' 命令已找到。"
 
 
 if [ ! -f "$CONFIG_FILE" ]; then
-    echo "错误：配置文件未找到于 $CONFIG_FILE (请确保您在项目根目录运行此脚本)"
+    echo "错误：配置文件未找到于 $CONFIG_FILE"
+    echo "请确保已运行 'crc init' 初始化系统，或检查 ~/.crc/ 目录是否存在"
     exit 1
 fi
 
@@ -144,7 +146,7 @@ echo "$all_concept_keys" | while IFS= read -r concept; do
         if [[ -n "$random_style" ]]; then
              cmd_parts+=("--style" "$random_style")
         fi
-        
+
         # 为了清晰显示和安全执行，避免直接使用 eval，将参数数组传递给命令
         echo "
   即将执行: ${(j: :)cmd_parts}" # 显示将要执行的命令
@@ -181,5 +183,8 @@ if [ $matched_concepts -eq 0 ]; then
      echo "警告：没有概念匹配模式 '$filter_pattern'。"
 fi
 
-echo "所有匹配的概念处理完成！请检查 outputs/images 和 cell_cover/metadata 目录。"
-exit 0 
+echo "所有匹配的概念处理完成！"
+echo "生成的图片保存在: ./images/{concept}/ 目录下"
+echo "任务元数据保存在: ~/.crc/metadata/images_metadata.json"
+echo "使用 'crc list-tasks' 查看所有任务状态"
+exit 0

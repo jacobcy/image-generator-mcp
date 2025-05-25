@@ -32,42 +32,152 @@
 
 ## 安装与设置
 
-### 前提条件
+### 🚀 快速安装（推荐）
 
-- Python 3.x
-- uv 包管理器（推荐）或 pip
-- TTAPI 账户和 API 密钥
-
-### 安装步骤
-
-1. 克隆或下载本项目到本地
-2. 运行安装脚本安装依赖：
+我们提供了一键安装脚本，会自动处理所有依赖安装：
 
 ```bash
-cd /path/to/your/project # 进入项目目录
-# 确保 requirements.txt 存在
-uv tool install -e . # 安装依赖
+# 1. 克隆项目
+git clone https://github.com/jacobcy/image-generator-mcp.git
+cd image-generator-mcp
+
+# 2. 运行自动安装脚本
+./scripts/setup.sh
 ```
 
-3. 设置 TTAPI API 密钥(用于生成图像)：
+安装脚本会自动：
+- ✅ 检查并协助安装 Python 3.13+
+- ✅ 检查并协助安装 uv 包管理器
+- ✅ 使用 uv 创建项目环境
+- ✅ 使用 `uv tool install` 全局安装 `crc` 命令
+- ✅ 验证安装并提供使用指导
+
+安装完成后，您可以在任何目录直接使用 `crc` 命令！
+
+### 📋 系统要求
+
+- **Python**: 3.13+ （脚本会协助安装）
+- **包管理器**: uv （脚本会自动安装）
+- **操作系统**: macOS 或 Linux
+- **API 密钥**: TTAPI 和 OpenAI 账户
+
+### 🔧 手动安装（高级用户）
+
+如果您偏好手动安装或需要自定义配置：
+
+<details>
+<summary>点击展开手动安装步骤</summary>
+
+#### 1. 安装 Python 3.13+
+
+**macOS (使用 Homebrew):**
+```bash
+brew install python@3.13
+```
+
+**Linux (Ubuntu/Debian):**
+```bash
+sudo apt update
+sudo apt install python3.13 python3.13-venv python3.13-pip
+```
+
+#### 2. 安装 uv 包管理器
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+source ~/.cargo/env  # 重新加载环境
+```
+
+#### 3. 克隆项目并安装
+
+```bash
+git clone https://github.com/jacobcy/image-generator-mcp.git
+cd image-generator-mcp
+
+# 方法1: 使用 uv sync (推荐)
+uv sync
+
+# 方法2: 创建环境并安装
+uv venv
+uv pip install -e .
+
+# 方法3: 全局安装工具
+uv tool install .
+```
+
+</details>
+
+### 🔑 API 密钥配置
+
+安装完成后，需要配置 API 密钥：
+
+#### 1. TTAPI 密钥（用于生成图像）
 
 ```bash
 # 方法一：设置环境变量 (推荐)
-export TTAPI_API_KEY="your_api_key_here"
+export TTAPI_API_KEY="your_ttapi_key_here"
 
-# 方法二：创建 .env 文件 (在项目根目录下)
-echo "TTAPI_API_KEY=your_api_key_here" > .env
+# 方法二：创建 .env 文件
+echo "TTAPI_API_KEY=your_ttapi_key_here" > .env
 ```
 
-4. 设置 openai 密钥 (用于生成提示词)：
+#### 2. OpenAI 密钥（用于生成提示词）
 
 ```bash
 # 方法一：设置环境变量 (推荐)
-export OPENAI_API_KEY="your_api_key_here"
+export OPENAI_API_KEY="your_openai_key_here"
 
-# 方法二：创建 .env 文件 (在项目根目录下)
-echo "OPENAI_API_KEY=your_api_key_here" >> .env
+# 方法二：添加到 .env 文件
+echo "OPENAI_API_KEY=your_openai_key_here" >> .env
 ```
+
+#### 3. 永久保存环境变量（可选）
+
+将 API 密钥添加到您的 shell 配置文件中：
+
+```bash
+# 对于 zsh 用户
+echo 'export TTAPI_API_KEY="your_ttapi_key_here"' >> ~/.zshrc
+echo 'export OPENAI_API_KEY="your_openai_key_here"' >> ~/.zshrc
+source ~/.zshrc
+
+# 对于 bash 用户
+echo 'export TTAPI_API_KEY="your_ttapi_key_here"' >> ~/.bashrc
+echo 'export OPENAI_API_KEY="your_openai_key_here"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+### ✅ 验证安装
+
+安装完成后，验证 `crc` 命令是否可用：
+
+```bash
+# 检查命令是否可用
+crc --help
+
+# 查看版本信息
+crc --version
+
+# 测试基本功能
+crc list-concepts
+```
+
+如果遇到 "command not found" 错误，请：
+1. 重新启动终端
+2. 或运行 `source ~/.zshrc`（或您的 shell 配置文件）
+3. 或检查 uv 工具路径是否在 PATH 中
+
+### 🆘 安装问题排查
+
+| 问题 | 解决方案 |
+|------|----------|
+| **Python 版本过低** | 运行安装脚本会自动提示升级 |
+| **uv 命令不存在** | 安装脚本会自动安装 uv |
+| **crc 命令不可用** | 重启终端或检查 PATH 配置 |
+| **权限错误** | 确保有写入权限或使用 sudo |
+| **网络连接问题** | 检查网络或使用代理 |
+
+如需更多帮助，请查看 [常见问题](#常见问题) 部分。
 
 ## 使用指南
 
@@ -386,6 +496,123 @@ crc init
 
 这会在 `~/.crc/` 目录下创建必要的目录结构和配置文件。可以使用 `--output-dir` 选项指定自定义的默认输出目录。
 
+### 安装脚本相关问题
+
+#### 安装脚本运行失败怎么办？
+
+1. **权限问题**：确保脚本有执行权限
+   ```bash
+   chmod +x scripts/setup.sh
+   ./scripts/setup.sh
+   ```
+
+2. **Python 版本问题**：如果系统 Python 版本过低，脚本会提示安装新版本
+   - 选择自动安装选项
+   - 或手动安装 Python 3.13+ 后重新运行脚本
+
+3. **网络连接问题**：
+   ```bash
+   # 检查网络连接
+   curl -I https://astral.sh/uv/install.sh
+
+   # 如果需要代理，设置代理环境变量
+   export https_proxy=http://your-proxy:port
+   ./scripts/setup.sh
+   ```
+
+#### 全局 crc 命令不可用怎么办？
+
+1. **重启终端**：最简单的解决方案
+   ```bash
+   # 关闭并重新打开终端，然后测试
+   crc --help
+   ```
+
+2. **手动加载环境**：
+   ```bash
+   source ~/.zshrc  # 或 ~/.bashrc
+   ```
+
+3. **检查 uv 工具路径**：
+   ```bash
+   # 查看 uv 工具安装位置
+   uv tool list
+
+   # 检查 PATH 是否包含 uv 工具目录
+   echo $PATH | grep -o '[^:]*\.local/bin[^:]*'
+   ```
+
+4. **手动添加到 PATH**：
+   ```bash
+   # 添加 uv 工具目录到 PATH
+   echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+   source ~/.zshrc
+   ```
+
+#### 如何卸载和重新安装？
+
+1. **卸载全局工具**：
+   ```bash
+   uv tool uninstall cell-cover-generator
+   ```
+
+2. **清理项目环境**：
+   ```bash
+   cd /path/to/image-generator-mcp
+   rm -rf .venv  # 删除虚拟环境
+   ```
+
+3. **重新安装**：
+   ```bash
+   ./scripts/setup.sh
+   ```
+
+#### 在不同操作系统上的注意事项
+
+**macOS:**
+- 如果没有 Homebrew，脚本会提示安装
+- 可能需要安装 Xcode Command Line Tools
+
+**Linux:**
+- 确保有 sudo 权限（用于安装系统包）
+- 某些发行版可能需要额外的开发包
+
+**Windows (WSL):**
+- 在 WSL 环境中按 Linux 方式安装
+- 确保 WSL 版本支持所需的 Python 版本
+
+### 开发和贡献
+
+#### 如何设置开发环境？
+
+```bash
+# 克隆项目
+git clone https://github.com/jacobcy/image-generator-mcp.git
+cd image-generator-mcp
+
+# 创建开发环境
+uv venv --python 3.13
+source .venv/bin/activate  # Linux/macOS
+# 或 .venv\Scripts\activate  # Windows
+
+# 安装开发依赖
+uv pip install -e ".[dev]"  # 如果有开发依赖
+
+# 运行测试
+python -m pytest  # 如果有测试
+```
+
 ---
 
-如有任何问题或建议，请联系项目维护者。
+## 📞 支持与反馈
+
+如有任何问题或建议，请：
+
+1. 查看本文档的 [常见问题](#常见问题) 部分
+2. 检查 [GitHub Issues](https://github.com/jacobcy/image-generator-mcp/issues)
+3. 提交新的 Issue 或 Pull Request
+4. 联系项目维护者
+
+**项目地址**: https://github.com/jacobcy/image-generator-mcp
+
+感谢使用 Cell Cover Generator！🎨
