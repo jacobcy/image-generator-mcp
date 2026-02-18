@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "image-gen-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "A tool to generate cover images using an external API."
 requires-python = ">=3.13"
 classifiers = [
@@ -35,3 +35,8 @@ command = "image_gen_mcp"
 
 [tool.setuptools]
 packages = {find = {}}
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]

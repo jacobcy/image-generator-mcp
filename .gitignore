@@ -49,9 +49,7 @@ cell_cover/outputs/
 htmlcov/
 
 *.txt
-*.yaml
-*.yml
-*.ini
+
 *.cfg
 
 *.png

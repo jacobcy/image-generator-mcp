@@ -22,16 +22,17 @@
 
 ### 1. 安装依赖
 
-需要 Python 3.10+ 环境：
+本项目使用 `uv` 进行包管理。
 
 ```bash
-# 创建虚拟环境
-python3 -m venv .venv
-source .venv/bin/activate
+# 安装 uv (如果尚未安装)
+curl -LsSf https://astral.sh/uv/install.sh | sh
 
-# 安装依赖
-pip install -r requirements.txt
-pip install fastmcp
+# 同步依赖
+uv sync
+
+# 或者直接安装到当前环境
+uv pip install -e .
 ```
 
 ### 2. 配置环境
@@ -50,7 +51,7 @@ cp .env-sample .env
 # 使用辅助脚本启动
 ./scripts/start_mcp.sh
 
-# 或者直接运行
+# 或者使用 uv 直接运行
 uv run mcp-server
 ```
 
@@ -62,8 +63,13 @@ uv run mcp-server
 {
   "mcpServers": {
     "image-gen": {
-      "command": "/path/to/image-gen-mcp/.venv/bin/mcp-server",
-      "args": []
+      "command": "/usr/local/bin/uv",
+      "args": [
+        "--directory",
+        "/path/to/image-generator-mcp",
+        "run",
+        "mcp-server"
+      ]
     }
   }
 }
@@ -74,13 +80,15 @@ uv run mcp-server
 ```
 image-generator-mcp/
 ├── image_gen_mcp/       # 核心源代码
-│   ├── apps/           # 插件模块 (如 cell_cover)
-│   ├── core/           # 核心框架代码
-│   └── main.py         # 入口文件
-├── scripts/            # 辅助脚本
-├── tests/              # 测试用例
-├── pyproject.toml      # 项目配置
-└── README.md           # 项目文档
+│   ├── apps/            # 插件模块 (如 cell_cover)
+│   ├── core/            # 核心框架代码 (MCP Server)
+│   └── main.py          # 入口文件
+├── scripts/             # 辅助脚本
+├── tests/               # 测试用例
+├── AGENTS.md            # Agent 文档
+├── ARCHITECTURE.md      # 架构文档
+├── pyproject.toml       # 项目配置
+└── README.md            # 项目文档
 ```
 
 ## 开发指南
@@ -90,8 +98,6 @@ image-generator-mcp/
 1. 在 `image_gen_mcp/apps/` 下创建新的模块
 2. 实现 `register(mcp)` 函数来注册工具和资源
 3. 确保在系统启动时加载该模块
-
-更多详细信息请参考 [MCP_README.md](MCP_README.md)。
 
 ## 许可证
 

@@ -29,7 +29,7 @@
 
 ## 🏗️ 架构层级
 
-### 第 1 层：核心功能层 (cell_cover/)
+### 第 1 层：核心功能层 (image_gen_mcp/apps/cell_cover/)
 
 **职责**：实现 Cell Cover Generator 的核心业务逻辑
 
@@ -45,18 +45,16 @@
 用户输入 → CLI 解析 → 命令处理器 → API 调用 → 结果输出
 ```
 
-
-
-### 第 3 层：MCP 协议层 (mcp_server/)
+### 第 3 层：MCP 协议层 (image_gen_mcp/core/)
 
 **职责**：将功能封装为 MCP (Model Context Protocol) 工具和资源
 
 | 组件 | 说明 |
 |------|------|
 | FastMCP | MCP 框架 |
+| `server.py` | MCP 服务器实例 |
 | `@mcp.tool` | 工具装饰器 |
 | `@mcp.resource` | 资源装饰器 |
-| stdio 传输 | 标准 I/O 传输 |
 
 **数据流**：
 ```
@@ -86,7 +84,7 @@ LLM 请求 → MCP 协议 → 调用工具函数 → CLI 执行 → 返回结果
 │                                                                 │
 │  2. 业务逻辑层                                              │
 │     ┌─────────────┐                                          │
-│     │ cell_cover/ │ ← 核心功能实现                  │
+│     │ apps/       │ ← 核心功能实现                  │
 │     │             │                                          │
 │     │  • CLI 命令  │                                      │
 │     │  • API 调用  │                                      │
@@ -109,63 +107,41 @@ LLM 请求 → MCP 协议 → 调用工具函数 → CLI 执行 → 返回结果
 ```
 image-generator-mcp/
 │
-├── 📄 核心代码 (cell_cover/)
-│   ├── __init__.py
-│   ├── cli.py              # CLI 入口
-│   ├── constants.py         # 常量定义
-│   ├── prompts_config.json   # 默认配置
+├── 📦 核心代码 (image_gen_mcp/)
+│   ├── main.py             # 入口文件
 │   │
-│   ├── commands/            # 命令处理器
-│   │   ├── __init__.py
-│   │   ├── create.py      # 创建任务
-│   │   ├── generate.py     # 生成提示词
-│   │   ├── view.py        # 查看任务
-│   │   ├── action.py       # 执行操作
-│   │   ├── list_cmd.py     # 列出概念
-│   │   ├── list_tasks.py   # 列出任务
-│   │   ├── describe.py     # 描述图像
-│   │   └── ...
+│   ├── apps/               # 业务插件
+│   │   └── cell_cover/     # 核心应用：Cell Cover Generator
+│   │       ├── __init__.py
+│   │       ├── cli.py      # CLI 入口
+│   │       ├── commands/   # 命令处理器
+│   │       └── utils/      # 工具函数
 │   │
-│   └── utils/              # 工具函数
+│   └── core/               # 核心框架
 │       ├── __init__.py
-│       ├── config.py       # 配置管理
-│       ├── api_client.py    # API 客户端
-│       ├── api.py          # API 封装
-│       ├── log.py          # 日志管理
-│       ├── image_handler.py # 图像处理
-│       └── ...
-│
-├── 🔌 MCP 服务器 (mcp_server/)
-│   └── __init__.py       # FastMCP 服务器（LLM 集成）
+│       ├── server.py       # MCP Server 实例
+│       ├── config.py       # 全局配置
+│       └── logging.py      # 日志配置
 │
 ├── 🔧 脚本 (scripts/)
 │   ├── start_mcp.sh        # MCP 服务器启动脚本
-│   └── upload_image.sh     # 图片上传脚本
+│   └── setup.sh            # 设置脚本
 │
 ├── 📚 文档
-│   ├── README.md                    # 项目主文档
-│   ├── AGENTS.md                  # Agent 文档
-│   └── ARCHITECTURE.md            # 本文件
+│   ├── README.md           # 项目主文档
+│   ├── AGENTS.md           # Agent 文档
+│   └── ARCHITECTURE.md     # 本文件
 │
 ├── ⚙️ 配置
-│   ├── pyproject.toml              # Python 项目配置
-│   ├── .env                       # 环境变量（本地）
-│   ├── .env-sample                 # 环境变量示例
-│   └── uv.lock                    # 依赖锁文件
+│   ├── pyproject.toml      # Python 项目配置
+│   ├── .env                # 环境变量（本地）
+│   ├── .env-sample         # 环境变量示例
+│   └── uv.lock             # 依赖锁文件
 │
-├── 📦 数据
-│   ├── .crc/                      # 项目数据目录
-│   │   ├── logs/                 # 日志文件
-│   │   ├── state/                # 状态文件
-│   │   ├── metadata/              # 元数据
-│   │   └── output/               # 输出文件
-│   ├── images/                     # 生成的图片
-│   └── prompts/                    # 保存的提示词
-│
-└── 🔬 其他
-    ├── .gitignore
-    ├── comfyui_colab.ipynb
-    └── ...
+└── 📦 数据 (运行时生成)
+    ├── .crc/               # 项目数据目录
+    ├── images/             # 生成的图片
+    └── prompts/            # 保存的提示词
 ```
 
 ## 🎯 使用场景映射
@@ -232,14 +208,15 @@ export OPENAI_API_KEY="sk-xxx..."
 
 ### 添加新 CLI 命令
 
-1. 在 `cell_cover/commands/` 中创建新文件
-2. 在 `cell_cover/cli.py` 中注册新命令
+1. 在 `image_gen_mcp/apps/cell_cover/commands/` 中创建新文件
+2. 在 `image_gen_mcp/apps/cell_cover/cli.py` 中注册新命令
 3. 更新 `ARCHITECTURE.md`
 
 ### 添加新的 MCP 工具
 
-1. 在 `mcp_server/__init__.py` 中添加 `@mcp.tool` 函数
-2. 更新 `README.md`
+1. 在 `image_gen_mcp/apps/` 下新建应用模块
+2. 实现 `register(mcp)` 函数，使用 `@mcp.tool` 注册工具
+3. `image_gen_mcp/core/server.py` 会自动加载所有应用模块
 
 ## 📊 性能考虑
 

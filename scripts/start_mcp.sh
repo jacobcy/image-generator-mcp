@@ -19,23 +19,17 @@ echo ""
 
 # 检查依赖
 echo -e "${YELLOW}检查依赖...${NC}"
-if command -v fastmcp &> /dev/null; then
-    echo -e "${GREEN}✓ fastmcp 已安装${NC}"
-else
-    echo -e "${YELLOW}⚠️  fastmcp 未安装${NC}"
-    echo -e "${YELLOW}安装命令: uv pip install fastmcp${NC}"
-    echo ""
-    read -p "是否现在安装? (y/n) " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        uv pip install fastmcp
-    fi
+if ! command -v uv &> /dev/null; then
+    echo -e "${YELLOW}⚠️  uv 未安装${NC}"
+    echo -e "${YELLOW}安装命令: curl -LsSf https://astral.sh/uv/install.sh | sh${NC}"
+    exit 1
 fi
+echo -e "${GREEN}✓ uv 已安装${NC}"
 
 # 检查初始化
 if [ ! -d ".crc" ]; then
     echo -e "${YELLOW}⚠️  项目未初始化${NC}"
-    echo -e "${YELLOW}运行命令: crc init${NC}"
+    echo -e "${YELLOW}运行命令: uv run crc init${NC}"
     echo ""
     read -p "是否现在初始化? (y/n) " -n 1 -r
     echo
@@ -51,11 +45,11 @@ echo -e "${BLUE}========================================${NC}"
 echo ""
 echo -e "${GREEN}使用方法：${NC}"
 echo -e "  1. Claude Desktop: 在 Settings → Developer → MCP Servers 中配置"
-echo -e "  2. 命令行: fastmcp run mcp_server"
+echo -e "  2. 命令行: uv run mcp-server"
 echo ""
 echo -e "${YELLOW}提示:${NC}"
 echo -e "  • 确保已设置 TTAPI_API_KEY 环境变量"
-echo -e "  • 查看 MCP_README.md 了解详细配置说明"
+echo -e "  • 查看 README.md 了解详细配置说明"
 echo -e "  • 使用 Ctrl+C 停止服务器"
 echo ""
 echo -e "${BLUE}========================================${NC}"
