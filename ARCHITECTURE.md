@@ -9,22 +9,22 @@
 │                     Cell Cover Generator                    │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                │
-│  ┌──────────────┐  ┌───────────────┐  ┌───────────────────┐
-│  │  CLI 命令    │  │  HTTP 服务器   │  │  MCP 服务器      │
-│  │              │  │                │  │                  │
-│  │ • create    │  │ • FastAPI     │  │ • FastMCP         │
-│  │ • generate   │  │ • REST API    │  │ • Tools           │
-│  │ • view      │  │ • Swagger UI   │  │ • Resources        │
-│  │ • action    │  │                │  │                  │
-│  │ ...         │  │                │  │                  │
-│  └──────────────┘  └───────────────┘  └───────────────────┘
-│         │                │                  │
-└─────────┼────────────────┼──────────────────┘
+│  ┌──────────────┐   ┌───────────────────┐
+│  │  CLI 命令    │   │  MCP 服务器      │
+│  │              │   │                  │
+│  │ • create    │   │ • FastMCP         │
+│  │ • generate   │   │ • Tools           │
+│  │ • view      │   │ • Resources        │
+│  │ • action    │   │                  │
+│  │ ...         │   │                  │
+│  └──────────────┘   └───────────────────┘
+│         │                   │
+└─────────┼───────────────────┘
           │                │
-    ┌─────▼────┐  ┌─────▼─────┐
-    │ Tailscale  │  │   LLM     │
-    │   网络    │  │  (Claude)  │
-    └───────────┘  └────────────┘
+    ┌─────▼─────┐
+    │   LLM     │
+    │  (Claude)  │
+    └───────────┘
 ```
 
 ## 🏗️ 架构层级
@@ -45,26 +45,7 @@
 用户输入 → CLI 解析 → 命令处理器 → API 调用 → 结果输出
 ```
 
-### 第 2 层：HTTP 服务器层 (server/api.py)
 
-**职责**：将 CLI 功能封装为 HTTP REST API
-
-| 组件 | 说明 |
-|------|------|
-| FastAPI | Web 框架 |
-| CORS 中间件 | 跨域支持 |
-| 端点封装 | /api/v1/create, /api/v1/tasks 等 |
-| 文件上传处理 | 图像上传、下载 |
-
-**数据流**：
-```
-HTTP 请求 → FastAPI → 捕获 CLI 输出 → JSON 响应
-```
-
-**适用场景**：
-- 通过 Tailscale 网络远程访问
-- 集成到其他 Web 应用
-- 需要标准 REST API 的场景
 
 ### 第 3 层：MCP 协议层 (mcp_server/)
 
@@ -117,7 +98,6 @@ LLM 请求 → MCP 协议 → 调用工具函数 → CLI 执行 → 返回结果
 │     │ 接口类型 │  客户端   │  使用场景              │
 │     ├────────────┼──────────┼────────────────┤             │
 │     │ CLI 命令  │  Terminal  │  命令行使用          │
-│     │ HTTP API   │  浏览器/cURL│ Tailscale 远程访问  │
 │     │ MCP        │  LLM 应用  │  Claude Desktop 等    │
 │     └────────────┴──────────┴────────────────┘                │
 │                                                                 │
@@ -155,25 +135,16 @@ image-generator-mcp/
 │       ├── image_handler.py # 图像处理
 │       └── ...
 │
-├── 🌐 HTTP 服务器 (server/api.py)
-│   └── api.py            # FastAPI 服务器（Tailscale 用途）
-│
 ├── 🔌 MCP 服务器 (mcp_server/)
 │   └── __init__.py       # FastMCP 服务器（LLM 集成）
 │
 ├── 🔧 脚本 (scripts/)
-│   ├── start_server.sh       # HTTP 服务器启动脚本
 │   ├── start_mcp.sh        # MCP 服务器启动脚本
-│   ├── start_server_simple.py # 简化启动脚本
-│   └── client.py           # HTTP 测试客户端
+│   └── upload_image.sh     # 图片上传脚本
 │
 ├── 📚 文档
 │   ├── README.md                    # 项目主文档
-│   ├── README_IMAGE_UPLOADER.md   # 图像上传器文档
-│   ├── SERVER_GUIDE.md             # HTTP 服务器指南
-│   ├── TAILSCALE_GUIDE.md          # Tailscale 配置指南
-│   ├── MCP_README.md              # MCP 服务器文档
-│   ├── MCP_QUICKSTART.md          # MCP 快速开始
+│   ├── AGENTS.md                  # Agent 文档
 │   └── ARCHITECTURE.md            # 本文件
 │
 ├── ⚙️ 配置
@@ -212,22 +183,7 @@ crc create --concept cell_membrane -p "添加荧光效果"
 - ✅ 完整的功能支持
 - ✅ 适合交互式使用
 
-### 场景 2：远程访问（Tailscale）
 
-**方式**: HTTP 服务器
-
-```bash
-# 服务器端
-./scripts/start_server_simple.py
-
-# 客户端（通过 Tailscale）
-curl http://100.100.100.1:8888/api/v1/concepts
-```
-
-**特点**：
-- ✅ 通过 VPN 安全访问
-- ✅ 适合远程团队协作
-- ✅ 无需在每台机器安装
 
 ### 场景 3：AI 集成（Claude Desktop）
 
@@ -256,13 +212,8 @@ Claude 自动：
 | | Typer | CLI 框架 |
 | | Requests | HTTP 客户端 |
 | | Pillow | 图像处理 |
-| **HTTP 服务器** | FastAPI | Web 框架 |
-| | Uvicorn | ASGI 服务器 |
-| | CORS | 跨域支持 |
 | **MCP 服务器** | FastMCP | MCP 框架 |
 | | Python types | 类型提示 |
-| **网络** | Tailscale | 安全 VPN |
-| | Karing | 网关（用户模式） |
 | **包管理** | uv | 快速 Python 包管理器 |
 
 ## 🔒 安全考虑
@@ -275,22 +226,7 @@ export TTAPI_API_KEY="sk-xxx..."
 
 # OpenAI API 密钥（概念生成可选）
 export OPENAI_API_KEY="sk-xxx..."
-
-# 服务器 API 密钥（可选）
-export SERVER_API_KEY="your-secure-key"
 ```
-
-### 2. 网络安全
-
-- ✅ Tailscale 提供端到端加密
-- ✅ 用户模式无需 root 权限
-- ✅ Karing 网关处理路由
-
-### 3. 访问控制
-
-- 使用 `SERVER_API_KEY` 保护 HTTP 服务器
-- 配置 Tailscale ACL 限制设备访问
-- 定期审查连接的设备
 
 ## 🚀 扩展性
 
@@ -300,22 +236,16 @@ export SERVER_API_KEY="your-secure-key"
 2. 在 `cell_cover/cli.py` 中注册新命令
 3. 更新 `ARCHITECTURE.md`
 
-### 添加新的 HTTP 端点
-
-1. 在 `server/api.py` 中添加新的 `@app.route` 装饰器
-2. 更新 `SERVER_GUIDE.md`
-
 ### 添加新的 MCP 工具
 
 1. 在 `mcp_server/__init__.py` 中添加 `@mcp.tool` 函数
-2. 更新 `MCP_README.md`
+2. 更新 `README.md`
 
 ## 📊 性能考虑
 
 | 操作 | 预期时间 |
 |------|----------|
 | CLI 命令执行 | < 1s |
-| HTTP API 调用 | < 2s（含网络） |
 | MCP 工具调用 | < 3s（含协议开销） |
 | 图像生成 | 10-60s（取决于 API） |
 
@@ -341,21 +271,17 @@ failed (失败)
 
 ## 🎓 总结
 
-**Cell Cover Generator MCP** 采用三层架构设计：
+**Cell Cover Generator MCP** 采用简洁的架构设计：
 
 1. **核心功能层** - 可重用的业务逻辑
-2. **接口层** - 多种访问方式（CLI、HTTP、MCP）
-3. **网络层** - 安全的远程访问（Tailscale）
+2. **MCP 接口层** - 为 LLM 提供的 standardized 接口
+3. **CLI 接口层** - 为开发者提供的命令行工具
 
 这种设计实现了：
 - ✅ 关注点分离
-- ✅ 多接口支持
-- ✅ 安全的网络访问
 - ✅ AI 深度集成
 - ✅ 灵活的扩展性
 
 **关键优势**：
-- 一套代码，多种使用方式
 - 无缝集成到 Claude Desktop
-- 通过 Tailscale 安全远程访问
 - 保持 CLI 的直接性和高效性

@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "cell-cover-generator"
+name = "image-gen-mcp"
 version = "0.1.0"
 description = "A tool to generate cover images using an external API."
 requires-python = ">=3.13"
@@ -26,13 +26,12 @@ dependencies = [
 ]
 
 [project.scripts]
-crc = "cell_cover.cli:app"
-mcp-server = "mcp_server.mcp_server:main"
+mcp-server = "image_gen_mcp.main:main"
 
 [tool.mcp-server]
 # MCP 服务器配置
 description = "Cell Cover Generator MCP Server"
-command = "mcp_server:main"
+command = "image_gen_mcp"
 
 [tool.setuptools]
 packages = {find = {}}

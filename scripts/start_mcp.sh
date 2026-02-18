@@ -62,4 +62,4 @@ echo -e "${BLUE}========================================${NC}"
 echo ""
 
 # 启动 MCP 服务器
-uv run mcp_server
+uv run mcp-server

@@ -172,7 +172,7 @@ fi
 echo "环境设置完成！"
 
 # --- 全局工具安装 ---
-echo "使用 uv tool install 将 crc 命令安装到全局..."
+echo "使用 uv tool install 将 mcp-server 命令安装到全局..."
 
 # 使用 uv tool install 安装当前项目为全局工具
 uv tool install .
@@ -181,7 +181,7 @@ if [ $? -ne 0 ]; then
     uv tool install --force .
     if [ $? -ne 0 ]; then
         echo "错误：全局工具安装失败。"
-        echo "您仍然可以在项目环境中使用 'uv run crc' 命令。"
+        echo "您仍然可以在项目环境中使用 'uv run mcp-server' 命令。"
         GLOBAL_INSTALL_FAILED=true
     else
         echo "全局工具安装成功！"
@@ -198,12 +198,12 @@ echo "验证安装..."
 
 if [ "$GLOBAL_INSTALL_FAILED" = false ]; then
     # 测试全局 crc 命令
-    if command -v crc &> /dev/null; then
-        echo "✅ 全局 crc 命令安装成功！"
+    if command -v mcp-server &> /dev/null; then
+        echo "✅ 全局 mcp-server 命令安装成功！"
         echo "测试命令版本:"
-        crc --help | head -3 2>/dev/null || echo "  (命令可用，但可能需要配置)"
+        mcp-server --help | head -3 2>/dev/null || echo "  (命令可用，但可能需要配置)"
     else
-        echo "⚠️  全局 crc 命令未在 PATH 中找到。"
+        echo "⚠️  全局 mcp-server 命令未在 PATH 中找到。"
         echo "您可能需要重新启动终端或添加 uv 工具路径到 PATH。"
         echo "uv 工具通常安装在: ~/.local/bin/ 或 ~/.cargo/bin/"
     fi
@@ -220,31 +220,25 @@ if [ "$GLOBAL_INSTALL_FAILED" = false ]; then
     echo ""
     echo "使用方式："
     echo "  方式1 (推荐): 直接使用全局命令"
-    echo "    crc create -c ca -var scientific --style focus"
-    echo "    crc --help"
+    echo "    mcp-server --help"
     echo ""
     echo "  方式2: 如果全局命令不可用，在项目目录中使用"
     echo "    cd $PROJECT_ROOT"
-    echo "    uv run crc create -c ca -var scientific --style focus"
+    echo "    uv run mcp-server --help"
 else
     echo "🔧 Cell Cover Generator 环境已设置完成！"
     echo ""
     echo "由于全局安装失败，请使用以下方式运行："
-    echo "  cd $PROJECT_ROOT"
-    echo "  uv run crc create -c ca -var scientific --style focus"
-    echo "  uv run crc --help"
+    echo "  uv run mcp-server --help"
 fi
 
 echo ""
 echo "更多使用示例："
-echo "  crc create -c ca -var scientific --style focus"
-echo "  crc list --limit 20"
-echo "  crc view <job_id>"
-echo "  crc --help"
+echo "  mcp-server --help"
 echo ""
 
 if [ "$GLOBAL_INSTALL_FAILED" = false ]; then
-    echo "💡 提示: 如果 'crc' 命令不可用，请尝试："
+    echo "💡 提示: 如果 'mcp-server' 命令不可用，请尝试："
     echo "  1. 重新启动终端"
     echo "  2. 或运行: source ~/.zshrc (或您的 shell 配置文件)"
     echo "  3. 或检查 PATH 中是否包含 uv 工具目录"
