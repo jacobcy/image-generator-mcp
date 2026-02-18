@@ -18,6 +18,7 @@ import uuid
 import json
 import io
 import base64
+import time
 
 # 从 utils 导入必要的函数 - 使用统一的元数据管理模块
 from .metadata_manager import save_image_metadata
@@ -199,9 +200,8 @@ def download_and_save_image(
     concept_dir = concept if concept and concept != 'unknown' else 'general'
     save_dir = os.path.join(current_dir, 'images', concept_dir)
 
-    # 获取 ~/.crc 目录用于元数据保存
-    home_dir = os.path.expanduser("~")
-    crc_base_dir = os.path.join(home_dir, '.crc')
+    # 获取当前目录的 .crc 目录用于元数据保存（统一使用当前目录）
+    crc_base_dir = os.path.join(current_dir, '.crc')
 
     # 生成文件名
     if not expected_filename or expected_filename == job_id + '.png':
@@ -227,59 +227,84 @@ def download_and_save_image(
         return False, "dir_creation_error", None
 
     # 下载图像
-    try:
-        response = requests.get(image_url, stream=True, timeout=30)
-        response.raise_for_status()
+    max_retries = 3
+    retry_delay = 2  # 秒
+    
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"尝试下载图像 (第 {attempt + 1}/{max_retries} 次): {image_url}")
+            response = requests.get(image_url, stream=True, timeout=60)
+            response.raise_for_status()
 
-        # 保存图像
-        with open(filepath, 'wb') as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-        logger.info(f"图像下载成功并保存到: {filepath}")
+            # 保存图像
+            with open(filepath, 'wb') as f:
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:  # 过滤掉空的 chunk
+                        f.write(chunk)
+            
+            logger.info(f"图像下载成功并保存到: {filepath}")
+            break  # 成功则跳出重试循环
+            
+        except (requests.exceptions.ConnectionError, requests.exceptions.ChunkedEncodingError, 
+                requests.exceptions.ReadTimeout, requests.exceptions.Timeout,
+                ConnectionResetError, ConnectionAbortedError, 
+                requests.exceptions.IncompleteRead) as e:
+            logger.warning(f"网络连接问题 (第 {attempt + 1}/{max_retries} 次): {str(e)}")
+            if attempt < max_retries - 1:
+                logger.info(f"等待 {retry_delay} 秒后重试...")
+                time.sleep(retry_delay)
+                retry_delay *= 2  # 指数退避
+                continue
+            else:
+                logger.error(f"重试 {max_retries} 次后仍无法下载图像: {str(e)}")
+                return False, "network_error_after_retries", None
+                
+        except requests.exceptions.HTTPError as e:
+            status_code = e.response.status_code if hasattr(e, 'response') else 'unknown'
+            logger.error(f"HTTP错误 ({status_code}): {str(e)}")
+            return False, f"{status_code}_error", None
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"请求错误: {str(e)}")
+            return False, "request_error", None
+            
+        except IOError as e:
+            logger.error(f"IO错误: {str(e)}")
+            return False, "io_error", None
+            
+        except Exception as e:
+            logger.error(f"下载或保存图像时发生未知错误: {str(e)}")
+            return False, "unknown_error", None
 
-        # 保存元数据
-        metadata_dir = os.path.join(crc_base_dir, 'metadata')
-        if metadata_dir:
-            try:
-                save_image_metadata(
-                    logger=logger,
-                    image_id=str(uuid.uuid4()),
-                    job_id=job_id,
-                    filename=filename,
-                    filepath=filepath,
-                    url=image_url,
-                    prompt=prompt,
-                    concept=concept,
-                    metadata_dir=metadata_dir,
-                    variations=variations,
-                    global_styles=styles,
-                    components=components,
-                    seed=seed,
-                    original_job_id=original_job_id,
-                    action_code=action_code
-                )
-                logger.info(f"已保存图像元数据，job_id={job_id}")
-            except Exception as e:
-                logger.error(f"保存元数据时出错: {str(e)}")
-                # 继续，因为图像下载已成功
-        else:
-            logger.warning("未提供元数据目录，跳过元数据保存")
+    # 保存元数据
+    metadata_dir = os.path.join(crc_base_dir, 'metadata')
+    if metadata_dir:
+        try:
+            save_image_metadata(
+                logger=logger,
+                image_id=str(uuid.uuid4()),
+                job_id=job_id,
+                filename=filename,
+                filepath=filepath,
+                url=image_url,
+                prompt=prompt,
+                concept=concept,
+                metadata_dir=metadata_dir,
+                variations=variations,
+                global_styles=styles,
+                components=components,
+                seed=seed,
+                original_job_id=original_job_id,
+                action_code=action_code
+            )
+            logger.info(f"已保存图像元数据，job_id={job_id}")
+        except Exception as e:
+            logger.error(f"保存元数据时出错: {str(e)}")
+            # 继续，因为图像下载已成功
+    else:
+        logger.warning("未提供元数据目录，跳过元数据保存")
 
-        return True, filepath, seed
-
-    except requests.exceptions.HTTPError as e:
-        status_code = e.response.status_code if hasattr(e, 'response') else 'unknown'
-        logger.error(f"HTTP错误 ({status_code}): {str(e)}")
-        return False, f"{status_code}_error", None
-    except requests.exceptions.RequestException as e:
-        logger.error(f"请求错误: {str(e)}")
-        return False, "request_error", None
-    except IOError as e:
-        logger.error(f"IO错误: {str(e)}")
-        return False, "io_error", None
-    except Exception as e:
-        logger.error(f"下载或保存图像时发生未知错误: {str(e)}")
-        return False, "unknown_error", None
+    return True, filepath, seed
 
 def compress_image(image_path: str) -> bytes:
     try:

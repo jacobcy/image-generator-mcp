@@ -40,9 +40,11 @@ def handle_describe(image_path_or_url: str, hook_url: Optional[str] = None, logg
                         generated_prompts = generated_prompts_str.strip().split('\n')
                         logger.info("Describe 任务完成，获取到生成的提示词。")
                         print("--- API 生成的提示词 ---")
-                        for i, p in enumerate(generated_prompts):
+                        counter = 1
+                        for p in generated_prompts:
                             if p.strip():
-                                print(f"{i+1}. {p.strip()}")
+                                print(f"{counter}. {p.strip()}")
+                                counter += 1
                         print("----------------------")
                         # TODO: Consider saving metadata for describe job
                         return 0

@@ -20,6 +20,8 @@ except ImportError:
 from ..utils.prompt import save_text_prompt, copy_to_clipboard
 # 导入 OpenAI 处理函数
 from ..utils.openai_handler import _optimize_prompt, _optimize_sd_prompt, get_log_func
+# 导入参数处理工具
+from ..utils.param_parser import build_midjourney_params_string
 
 logger = logging.getLogger(__name__)
 
@@ -38,36 +40,47 @@ def _build_final_prompt(core_prompt: str, params: List[str]) -> str:
         return core_prompt
     return f"{core_prompt} {' '.join(params)}"
 
-def _get_params_from_config(config: Dict[str, Any], aspect: str, quality: str,
-                           version: str, style: Optional[List[str]], cref: Optional[str]) -> List[str]:
-    """从配置中收集参数"""
-    params = []
-
-    # 附加cref（如果提供）
+def _get_params_from_parser(aspect: str, quality: str, version: str, 
+                           style: Optional[List[str]], cref: Optional[str]) -> str:
+    """使用 param_parser 构建参数字符串"""
+    params = {}
+    
+    # 设置基础参数
+    if aspect:
+        # 将aspect别名转换为实际的纵横比值
+        aspect_mapping = {
+            'square': '1:1',
+            'portrait': '3:4', 
+            'landscape': '4:3',
+            'cover': '16:9'
+        }
+        params['aspect_ratio'] = aspect_mapping.get(aspect, aspect)
+    
+    if quality:
+        # 将quality别名转换为实际的质量值
+        quality_mapping = {
+            'standard': '1',
+            'high': '2'
+        }
+        params['quality'] = quality_mapping.get(quality, quality)
+    
+    if version:
+        # 处理版本参数
+        version_mapping = {
+            'v5': '5',
+            'v6': '6.1', 
+            'v7': '7'
+        }
+        params['version'] = version_mapping.get(version, version)
+    
+    # 处理cref参数
     if cref:
-        params.append(f"--cref {cref}")
-
-    # 附加aspect_ratio, quality, version参数
-    aspect_ratios = config.get("aspect_ratios", {})
-    quality_settings = config.get("quality_settings", {})
-    style_versions = config.get("style_versions", {})
-
-    aspect_ratio = aspect_ratios.get(aspect)
-    quality_setting = quality_settings.get(quality)
-    version_setting = style_versions.get(version)
-
-    if aspect_ratio: params.append(aspect_ratio)
-    if quality_setting: params.append(quality_setting)
-    if version_setting: params.append(version_setting)
-
-    # 附加style参数（从global_styles中查找）
-    if style:
-        global_styles = config.get("global_styles", {})
-        # 处理 style: 如果在 global_styles 中找不到，则直接使用 style key 本身
-        style_params = [global_styles.get(s, s) for s in style]
-        params.extend(style_params)
-
-    return params
+        params['cref'] = cref
+    
+    # 注意：style参数在这里不作为Midjourney参数处理，
+    # 而是作为global_styles文本追加到提示词中
+    
+    return build_midjourney_params_string(params)
 
 def _clean_variations(variations: Dict[str, str]) -> Dict[str, str]:
     """清理变体提示词中的参数"""
@@ -100,7 +113,7 @@ def update_config_with_concept(config_path: str, concept_key: str, concept_data:
                 config_data = json.load(f)
         else:
             # 如果文件不存在，创建基本结构
-            config_data = {"concepts": {}, "global_styles": {}, "aspect_ratios": {}, "quality_settings": {}, "style_versions": {}}
+            config_data = {"concepts": {}, "global_styles": {}}
 
         # 确保concepts存在
         if "concepts" not in config_data:
@@ -294,8 +307,20 @@ f'''生成的概念:
             print("\n变体提示词:")
             for var_name, var_prompt in concept_data.get("variations", {}).items():
                 print(f"---\n{var_name}: {var_prompt}\n---")
-        params = _get_params_from_config(config, aspect, quality, version, style, cref)
-        clipboard_text = _build_final_prompt(core_prompt_text, params)
+        
+        # 使用 param_parser 构建参数
+        param_string = _get_params_from_parser(aspect, quality, version, style, cref)
+        
+        # 处理 global_styles（如果有）
+        style_text = ""
+        if style:
+            global_styles = config.get("global_styles", {})
+            style_parts = [global_styles.get(s, s) for s in style]
+            style_text = " " + " ".join(style_parts)
+        
+        clipboard_text = core_prompt_text + style_text
+        if param_string:
+            clipboard_text += " " + param_string
 
     if clipboard and PYPERCLIP_AVAILABLE:
         copy_to_clipboard(logger, clipboard_text)

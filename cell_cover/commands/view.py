@@ -411,11 +411,12 @@ def handle_view(
                 print(f"\n正在尝试获取任务 {job_id_to_query} 的在线URL...")
                 api_result = poll_for_result(logger, job_id_to_query, api_key)
                 if api_result:
-                    normalized_result = normalize_api_response(logger, api_result)
+                    final_status, api_data = api_result
+                    normalized_result = normalize_api_response(logger, api_data)
                     online_url = normalized_result.get('url')
                     if online_url:
                         print(f"  在线图像:   {online_url}")
-                        update_local_job_history(logger, job_id_to_query, api_result, metadata_dir)
+                        update_local_job_history(logger, job_id_to_query, api_data, metadata_dir)
             except Exception as e:
                 logger.warning(f"获取在线URL时发生错误: {str(e)}")
         elif local_only and not online_url:

@@ -106,6 +106,11 @@ def normalize_api_response(logger, api_response):
     if "metadata_updated_at" not in normalized:
         normalized["metadata_updated_at"] = datetime.now().isoformat()
 
+    # 确保 created_at 字段存在，如果缺失则使用当前时间
+    if "created_at" not in normalized or not normalized["created_at"]:
+        normalized["created_at"] = datetime.now().isoformat()
+        logger.debug(f"Task {normalized.get('job_id', 'unknown')[:6]} 缺少 created_at 字段，使用当前时间作为默认值")
+
     # logger.debug(f"API响应标准化结果: {normalized}") # 在脚本中打印更清晰
     return normalized
 

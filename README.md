@@ -238,16 +238,61 @@ crc <command> --help
 生成提示词并提交新的 Midjourney 图像生成任务。
 
 *   **用法:** `crc create [-c CONCEPT | -p PROMPT] [options...]`
-*   **主要选项:**
-    *   `-c, --concept <key>`: **使用已存在概念**的键名。从配置文件中读取已保存的概念来生成图像。
-    *   `-p, --prompt <text>`: **直接使用已准备好的提示词**。不经过 AI 解析，直接提交给 Midjourney API。
-    *   `-var, --variation <key>`: 使用的变体键 (仅支持一个)。
-    *   `--style <key>`: 使用的全局风格键 (仅支持一个)。
-    *   `--cref <url_or_path>`: 图像参考 URL 或本地路径 (支持自动上传本地图片)。
-    *   `-m, --mode <mode>`: 生成模式 (`relax`, `fast`, `turbo`，默认: `relax`)。
-    *   `--hook-url <url>`: Webhook 回调地址。
-    *   `--wait`: 提交任务后阻塞等待任务完成并下载结果 (仅在未使用 `--hook-url` 时生效)。
-    *   `--clipboard`, `--save-prompt`
+
+#### 核心参数
+*   `-c, --concept <key>`: **使用已存在概念**的键名。从配置文件中读取已保存的概念来生成图像。
+*   `-p, --prompt <text>`: **自定义提示词**。可以包含 Midjourney 参数（如 `--ar 16:9 --style raw`），系统会自动解析。
+*   `-var, --variation <key>`: 使用的变体键。
+
+#### Midjourney 原生参数
+*   `--aspect-ratio, --ar <ratio>`: 纵横比 (如 `16:9`, `1:1`, `9:16`)
+*   `--style <style>`: 风格 (`raw`, `cute`, `expressive`, `original`, `scenic`)
+*   `--stylize, -s <0-1000>`: 风格化程度
+*   `--chaos <0-100>`: 混乱度
+*   `--weird, -w <0-3000>`: 怪异度
+*   `--seed <number>`: 种子值
+*   `--version, -v <version>`: Midjourney 版本 (`v6`, `v7`, `niji`, `niji6` 等)
+*   `--quality, -q <quality>`: 质量 (`0.25`, `0.5`, `1`, `2`)
+*   `--no <text>`: 负面提示词
+*   `--tile`: 启用平铺模式
+*   `--video`: 生成视频
+
+#### 参考图像参数
+*   `--cref <url_or_path>`: 字符参考图像 URL 或本地路径
+*   `--cw <0-100>`: 字符参考权重
+*   `--sref <url_or_path>`: 风格参考图像 URL 或本地路径
+*   `--sw <0-1000>`: 风格参考权重
+
+#### 系统参数
+*   `-m, --mode <mode>`: 生成模式 (`relax`, `fast`, `turbo`，默认: `relax`)
+*   `--hook-url <url>`: Webhook 回调地址
+*   `--clipboard`: 复制提示词到剪贴板
+*   `--save-prompt`: 保存提示词到文件
+
+#### 使用示例
+
+**方式1：纯命令行参数**
+```bash
+crc create -p "Modern laboratory backdrop" --ar 16:9 --style raw --v 6
+```
+
+**方式2：提示词中包含参数**
+```bash
+crc create -p "Modern laboratory backdrop --ar 16:9 --style raw --v 6"
+```
+
+**方式3：混合使用（命令行参数优先）**
+```bash
+crc create -p "Modern laboratory backdrop --ar 1:1" --style raw --v 6
+# 结果：aspect_ratio=1:1, style=raw, version=6
+```
+
+**方式4：使用概念和参数**
+```bash
+crc create --concept cell_membrane -p "加入蓝色光效" --ar 16:9 --chaos 20
+```
+
+*   **参数优先级:** CLI 显式参数 > 提示词中的参数 > 配置文件默认值
 *   **注意:** 成功提交后会更新 `last_job.json`。
 
 ### `recreate`
@@ -343,6 +388,70 @@ crc <command> --help
     *   `--asc`: 升序排序 (默认降序)。
     *   `-r, --remote`: 从远程API获取任务列表而非本地元数据。当本地保存失败时，可用此选项查看远程任务状态。
     *   `-v, --verbose`: 显示详细信息，包括完整提示词和额外元数据。
+
+---
+
+## 🎯 智能参数解析功能
+
+### 核心特性
+
+我们的 `crc create` 命令支持**智能参数解析**，可以自动识别和处理提示词中的 Midjourney 参数，让您的使用更加灵活和直观。
+
+### 支持的参数格式
+
+| 参数类型 | 命令行格式 | 提示词内格式 | 说明 |
+|---------|------------|-------------|------|
+| **纵横比** | `--ar 16:9` | `--ar 16:9` | 支持所有 MJ 标准比例 |
+| **版本** | `--version v6` | `--v 6` | 支持 v4-v7, niji 系列 |
+| **风格** | `--style raw` | `--style raw` | raw, cute, expressive 等 |
+| **质量** | `--quality 2` | `--q 2` | 0.25, 0.5, 1, 2 |
+| **风格化** | `--stylize 500` | `--s 500` | 0-1000 数值范围 |
+| **混乱度** | `--chaos 50` | `--c 50` | 0-100 数值范围 |
+| **怪异度** | `--weird 100` | `--w 100` | 0-3000 数值范围 |
+| **种子** | `--seed 12345` | `--seed 12345` | 任意数值 |
+| **负面词** | `--no "blur"` | `--no blur` | 排除的元素 |
+| **参考图** | `--cref url` | `--cref url` | 字符参考图像 |
+| **参考权重** | `--cw 80` | `--cw 80` | 参考图像权重 |
+
+### 使用优势
+
+✅ **灵活输入**: 可以在提示词中直接包含参数，无需记忆复杂的命令行选项  
+✅ **智能优先级**: CLI 参数自动覆盖提示词参数，便于快速调整  
+✅ **参数验证**: 自动验证参数有效性，避免无效请求  
+✅ **向后兼容**: 完全兼容旧版本的使用方式  
+✅ **错误提示**: 详细的错误信息帮助快速定位问题  
+
+### 实际使用场景
+
+#### 场景1：从其他平台复制提示词
+```bash
+# 直接粘贴从 Discord 或其他平台复制的完整提示词
+crc create -p "Modern laboratory backdrop with DNA helix and medical instruments, clean professional presentation style, soft blue lighting, subtle Chinese national elements, minimalist design --ar 16:9 --style raw --v 6"
+```
+
+#### 场景2：快速参数调整
+```bash
+# 提示词中有 --ar 1:1，但想临时改为 16:9
+crc create -p "cell membrane structure --ar 1:1 --style raw" --ar 16:9
+# 结果：使用 16:9 纵横比（CLI 参数优先）
+```
+
+#### 场景3：批量生成不同版本
+```bash
+# 基础提示词
+BASE_PROMPT="mitochondria energy production --ar 16:9 --style raw"
+
+# 生成不同版本
+crc create -p "$BASE_PROMPT" --v 6
+crc create -p "$BASE_PROMPT" --v 7  
+crc create -p "$BASE_PROMPT --v niji6"  # 提示词中指定版本
+```
+
+#### 场景4：概念与参数结合
+```bash
+# 使用预设概念，添加自定义参数
+crc create --concept cell_division -p "增加荧光效果" --chaos 30 --stylize 700
+```
 
 ---
 
@@ -523,13 +632,36 @@ crc create --concept ca --prompt "细胞防御病毒"
 # 两个项目使用相同的概念配置，但图片分别保存在各自的目录中
 ```
 
+### 如何使用新的参数解析功能？
+
+我们全新的参数解析功能让您可以更灵活地使用 Midjourney 参数：
+
+**Q: 我可以直接粘贴包含参数的提示词吗？**  
+A: 可以！直接使用：
+```bash
+crc create -p "your prompt --ar 16:9 --style raw --v 6"
+```
+
+**Q: CLI 参数和提示词参数冲突了怎么办？**  
+A: CLI 参数优先级更高，会自动覆盖提示词中的同名参数：
+```bash
+crc create -p "prompt --ar 1:1" --ar 16:9  # 最终使用 16:9
+```
+
+**Q: 支持哪些 Midjourney 参数？**  
+A: 支持大部分官方参数：`--ar`, `--v`, `--style`, `--s`, `--q`, `--chaos`, `--weird`, `--seed`, `--no`, `--cref`, `--cw`, `--sref`, `--sw`, `--tile`, `--video` 等。
+
+**Q: 参数格式有要求吗？**  
+A: 支持 Midjourney 标准格式，如 `--ar 16:9`, `--v 6`, `--s 500`。系统会自动验证参数有效性。
+
 ### 如何获取最佳效果？
 
 1. 尝试不同的创意概念和变体
-2. 调整宽高比以匹配 Cell 杂志封面要求
-3. 使用高质量设置生成图像
-4. 使用 `view` 命令查看已完成任务的 Seed，然后使用 `crc recreate <identifier>` 尝试微调参数重新生成。
-5. 进行专业的后期处理
+2. 使用新的参数解析功能快速调整纵横比、风格等参数
+3. 利用 `--chaos` 和 `--stylize` 参数增加创意变化
+4. 使用高质量设置生成图像
+5. 使用 `view` 命令查看已完成任务的 Seed，然后使用 `crc recreate <identifier>` 尝试微调参数重新生成
+6. 进行专业的后期处理
 
 ### API 调用失败怎么办？
 

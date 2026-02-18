@@ -2,7 +2,6 @@
 import logging
 import os
 import uuid
-from typing import Optional
 
 # 从 utils 导入必要的函数 - 使用统一的元数据管理模块
 from ..utils.metadata_manager import find_initial_job_info, save_image_metadata
@@ -45,6 +44,16 @@ def handle_action(
             print(f"- {action}: {description}")
         return 0  # 成功返回
     """处理 'action' 命令，对现有任务执行操作。"""
+
+    # Validate required parameters
+    if not crc_base_dir:
+        logger.error("缺少必需的 crc_base_dir 参数")
+        print("错误：缺少必需的 crc_base_dir 参数")
+        return 1
+
+    # Calculate metadata_dir once
+    metadata_dir = os.path.join(crc_base_dir, 'metadata')
+
     # Access parameters from the args object
     action_code = args.action_code
     identifier = args.identifier
@@ -111,12 +120,12 @@ def handle_action(
         original_job_id = raw_identifier
         if wait:
             logger_in_func.info("--wait=True，尝试查找原始任务信息以便后续记录元数据...")
-            original_job_info = find_initial_job_info(logger_in_func, original_job_id)
+            original_job_info = find_initial_job_info(logger_in_func, original_job_id, metadata_dir)
             if not original_job_info:
                 logger_in_func.warning(f"(Wait Mode) 无法在本地找到原始 Job ID '{original_job_id}' 的元数据，后续保存的元数据信息可能不完整。")
     else:
         logger_in_func.info(f"来自 '{source_description}' 的标识符 '{raw_identifier}' 不像 Job ID，将尝试在元数据中查找以获取 Job ID...")
-        original_job_info = find_initial_job_info(logger_in_func, raw_identifier)
+        original_job_info = find_initial_job_info(logger_in_func, raw_identifier, metadata_dir)
         if not original_job_info or not original_job_info.get('job_id'):
             logger_in_func.error(f"无法根据来自 '{source_description}' 的标识符 '{raw_identifier}' 找到唯一的有效任务或其 Job ID。")
             print(f"错误：无法找到标识符 '{raw_identifier}' 对应的任务。请使用 'list-tasks' 查看或提供有效的 Job ID。")
@@ -135,11 +144,11 @@ def handle_action(
     logger_in_func.info(f"准备调用 Action API: action={action_code}, job_id={original_job_id}, mode={mode}")
     new_job_id = call_action_api(
         logger=logger_in_func,
-        api_key=api_key, # Use the directly passed api_key
-        job_id=original_job_id, # Correct keyword for utils/api.py function
-        action_code=action_code, # Use unpacked action_code
-        hook_url=hook_url, # Use unpacked hook_url
-        mode=mode # Use unpacked mode
+        api_key=api_key,
+        original_job_id=original_job_id,
+        action=action_code,
+        hook_url=hook_url,
+        mode=mode
     )
 
     if new_job_id:
@@ -174,7 +183,7 @@ def handle_action(
 
                         # --- 生成期望的文件名 --- #
                         try:
-                            all_tasks = load_all_metadata(logger_in_func)
+                            all_tasks = load_all_metadata(logger_in_func, metadata_dir)
                             all_tasks_index = _build_metadata_index(all_tasks)
                             expected_filename = _generate_expected_filename(logger_in_func, normalized_result, all_tasks_index)
                         except Exception as e:
@@ -182,11 +191,17 @@ def handle_action(
                             expected_filename = f"action_{new_job_id}.png"
                         # ---------------------- #
 
-                        download_success, saved_path, image_seed = download_and_save_image(
+                        # Ensure prompt is not None
+                        prompt_text = normalized_result.get('prompt') or (
+                            original_job_info.get("prompt", f"Action: {action_code} on {original_job_id}")
+                            if original_job_info else f"Action: {action_code} on {original_job_id}"
+                        )
+
+                        download_success, saved_path, _ = download_and_save_image(
                             logger_in_func,
                             image_url,
                             new_job_id, # Use the NEW job ID
-                            normalized_result.get('prompt'),
+                            prompt_text,
                             expected_filename, # Pass generated filename
                             normalized_result.get('concept'),
                             normalized_result.get('variations'),
@@ -212,14 +227,22 @@ def handle_action(
                         # Save basic metadata anyway
                         normalized_result = normalize_api_response(logger_in_func, api_data or {})
                         save_image_metadata(
-                            logger_in_func, None, new_job_id, None, None, None,
-                            original_job_info.get("prompt", f"Action: {action_code} on {original_job_id}") if original_job_info else f"Action: {action_code} on {original_job_id}",
-                            original_job_info.get("concept") if original_job_info and original_job_info.get("concept") else "action",
-                            original_job_info.get("variations", []) if original_job_info else [],
-                            original_job_info.get("global_styles", []) if original_job_info else [],
-                            None, normalized_result.get("seed"), original_job_id,
+                            logger=logger_in_func,
+                            image_id=str(uuid.uuid4()),
+                            job_id=new_job_id,
+                            filename=None,
+                            filepath=None,
+                            url=None,
+                            prompt=original_job_info.get("prompt", f"Action: {action_code} on {original_job_id}") if original_job_info else f"Action: {action_code} on {original_job_id}",
+                            concept=original_job_info.get("concept") if original_job_info and original_job_info.get("concept") else "action",
+                            metadata_dir=metadata_dir,
+                            variations=original_job_info.get("variations") if original_job_info else None,
+                            global_styles=original_job_info.get("global_styles") if original_job_info else None,
+                            components=None,
+                            seed=normalized_result.get("seed"),
+                            original_job_id=original_job_id,
                             action_code=action_code,
-                            status=f"polling_success_no_url"
+                            status="polling_success_no_url"
                         )
                         return 1 # Return failure
                 elif final_status == "FAILED":
@@ -231,14 +254,22 @@ def handle_action(
                     # Save basic metadata for the failed attempt
                     normalized_result = normalize_api_response(logger_in_func, api_data or {})
                     save_image_metadata(
-                        logger_in_func, None, new_job_id, None, None, None,
-                        original_job_info.get("prompt", f"Action: {action_code} on {original_job_id}") if original_job_info else f"Action: {action_code} on {original_job_id}",
-                        original_job_info.get("concept") if original_job_info and original_job_info.get("concept") else "action",
-                        original_job_info.get("variations", []) if original_job_info else [],
-                        original_job_info.get("global_styles", []) if original_job_info else [],
-                        None, normalized_result.get("seed"), original_job_id,
+                        logger=logger_in_func,
+                        image_id=None,
+                        job_id=new_job_id,
+                        filename=None,
+                        filepath=None,
+                        url=None,
+                        prompt=original_job_info.get("prompt", f"Action: {action_code} on {original_job_id}") if original_job_info else f"Action: {action_code} on {original_job_id}",
+                        concept=original_job_info.get("concept") if original_job_info and original_job_info.get("concept") else "action",
+                        metadata_dir=metadata_dir,
+                        variations=original_job_info.get("variations", []) if original_job_info else [],
+                        global_styles=original_job_info.get("global_styles", []) if original_job_info else [],
+                        components=None,
+                        seed=normalized_result.get("seed"),
+                        original_job_id=original_job_id,
                         action_code=action_code,
-                        status=f"polling_failed: {final_status}" # Use final_status
+                        status=f"polling_failed: {final_status}"
                     )
                     return 1 # Return failure
                 else:
@@ -252,12 +283,20 @@ def handle_action(
                 print(f"错误：轮询操作 '{action_code}' 失败或超时。")
                 # Save basic metadata for the failed attempt
                 save_image_metadata(
-                    logger_in_func, None, new_job_id, None, None, None,
-                    original_job_info.get("prompt", f"Action: {action_code} on {original_job_id}") if original_job_info else f"Action: {action_code} on {original_job_id}",
-                    original_job_info.get("concept") if original_job_info and original_job_info.get("concept") else "action",
-                    original_job_info.get("variations", []) if original_job_info else [],
-                    original_job_info.get("global_styles", []) if original_job_info else [],
-                    None, None, original_job_id, # No seed available
+                    logger=logger_in_func,
+                    image_id=None,
+                    job_id=new_job_id,
+                    filename=None,
+                    filepath=None,
+                    url=None,
+                    prompt=original_job_info.get("prompt", f"Action: {action_code} on {original_job_id}") if original_job_info else f"Action: {action_code} on {original_job_id}",
+                    concept=original_job_info.get("concept") if original_job_info and original_job_info.get("concept") else "action",
+                    metadata_dir=metadata_dir,
+                    variations=original_job_info.get("variations", []) if original_job_info else [],
+                    global_styles=original_job_info.get("global_styles", []) if original_job_info else [],
+                    components=None,
+                    seed=None,
+                    original_job_id=original_job_id,
                     action_code=action_code,
                     status="polling_timeout_or_error"
                 )
@@ -267,30 +306,44 @@ def handle_action(
             logger_in_func.info("操作已提交，未请求等待 (--wait)。")
             # Optionally save basic pending metadata? Similar to webhook case.
             save_image_metadata(
-                 logger_in_func, None, new_job_id, None, None, None,
-                 original_job_info.get("prompt", f"Action: {action_code} on {original_job_id}") if original_job_info else f"Action: {action_code} on {original_job_id}",
-                 original_job_info.get("concept") if original_job_info and original_job_info.get("concept") else "action", # 继承原始概念，如果没有则使用 "action"
-                 original_job_info.get("variations", []) if original_job_info else [],
-                 original_job_info.get("global_styles", []) if original_job_info else [],
-                 {"status": "submitted_no_wait"}, None,
-                 original_job_id,
-                 action_code=action_code, # 显式添加action_code
-                 status="submitted_no_wait"
+                logger=logger_in_func,
+                image_id=None,
+                job_id=new_job_id,
+                filename=None,
+                filepath=None,
+                url=None,
+                prompt=original_job_info.get("prompt", f"Action: {action_code} on {original_job_id}") if original_job_info else f"Action: {action_code} on {original_job_id}",
+                concept=original_job_info.get("concept") if original_job_info and original_job_info.get("concept") else "action",
+                metadata_dir=metadata_dir,
+                variations=original_job_info.get("variations", []) if original_job_info else [],
+                global_styles=original_job_info.get("global_styles", []) if original_job_info else [],
+                components=None,
+                seed=None,
+                original_job_id=original_job_id,
+                action_code=action_code,
+                status="submitted_no_wait"
             )
             return 0 # Return success for submission
         elif hook_url:
             # Webhook provided, save basic metadata
             logger_in_func.info(f"提供了 Webhook URL ({hook_url})，任务将在后台处理。")
             save_image_metadata(
-                logger_in_func, None, new_job_id, None, None, None,
-                 original_job_info.get("prompt", f"Action: {action_code} on {original_job_id}") if original_job_info else f"Action: {action_code} on {original_job_id}",
-                 original_job_info.get("concept") if original_job_info and original_job_info.get("concept") else "action", # 继承原始概念，如果没有则使用 "action"
-                 original_job_info.get("variations", []) if original_job_info else [],
-                 original_job_info.get("global_styles", []) if original_job_info else [],
-                 {"status": "submitted_webhook"}, None,
-                 original_job_id,
-                 action_code=action_code, # 显式添加action_code
-                 status="submitted_webhook"
+                logger=logger_in_func,
+                image_id=None,
+                job_id=new_job_id,
+                filename=None,
+                filepath=None,
+                url=None,
+                prompt=original_job_info.get("prompt", f"Action: {action_code} on {original_job_id}") if original_job_info else f"Action: {action_code} on {original_job_id}",
+                concept=original_job_info.get("concept") if original_job_info and original_job_info.get("concept") else "action",
+                metadata_dir=metadata_dir,
+                variations=original_job_info.get("variations", []) if original_job_info else [],
+                global_styles=original_job_info.get("global_styles", []) if original_job_info else [],
+                components=None,
+                seed=None,
+                original_job_id=original_job_id,
+                action_code=action_code,
+                status="submitted_webhook"
             )
             return 0 # Return success for submission
 

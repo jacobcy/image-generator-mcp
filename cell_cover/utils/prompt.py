@@ -10,58 +10,63 @@ Functions for generating, saving, and copying Midjourney prompts.
 import os
 import logging
 from datetime import datetime
+import re
 
-# Handle optional pyperclip import
+# 尝试导入 pyperclip，如果没有安装则使用虚拟的
 try:
-    import pyperclip
-    PYPERCLIP_AVAILABLE = True
+    import importlib.util
+    PYPERCLIP_AVAILABLE = importlib.util.find_spec("pyperclip") is not None
+    if PYPERCLIP_AVAILABLE:
+        import pyperclip
+    else:
+        pyperclip = None
 except ImportError:
     PYPERCLIP_AVAILABLE = False
-    # Define a dummy pyperclip object if needed, or just check the flag
+    pyperclip = None
+
+# 如果pyperclip不可用，创建一个虚拟对象
+if not PYPERCLIP_AVAILABLE:
     class DummyPyperclip:
         def copy(self, text):
-            pass # Do nothing
+            pass  # Do nothing
         def paste(self):
-            return "" # Return empty
+            return ""
+
     pyperclip = DummyPyperclip()
 
+# 导入参数处理工具
+from .param_parser import build_midjourney_params_string
 
-def generate_prompt_text(logger, config, concept_key, variation_keys=None, global_style_keys=None, aspect_ratio="cell_cover", quality="high", version="v6", cref_url=None):
-    """生成完整的 Midjourney 提示词文本。
+def generate_prompt_text(logger, config, concept_key, variation_keys=None, global_style_keys=None, aspect_ratio="16:9", quality="1", version="6.1", cref_url=None):
+    """生成最终的提示词字符串
 
     Args:
-        logger: 日志记录器。
-        config: 配置字典。
-        concept_key: 创意概念的键。
-        variation_keys: 变体的键列表 (可选)。
-        global_style_keys: 全局风格修饰词列表 (可选)。
-        aspect_ratio: 宽高比设置的键 (默认: cell_cover)。
-        quality: 质量设置的键 (默认: high)。
-        version: Midjourney 版本的键 (默认: v6)。
-        cref_url: 图像参考 URL (可选，仅 v6 支持)。
+        logger: 日志记录器
+        config: 配置字典
+        concept_key: 概念键名
+        variation_keys: 变体键名列表
+        global_style_keys: 全局风格键名列表
+        aspect_ratio: 纵横比 (默认 "16:9")
+        quality: 质量 (默认 "1")
+        version: 版本 (默认 "6.1")
+        cref_url: 参考图像URL
 
     Returns:
-        dict: 包含生成的提示词和其他相关信息的字典，如果生成失败则返回 None。
+        包含提示词和其他信息的字典，失败时返回 None
     """
-    variation_log_str = '-'.join(variation_keys) if variation_keys else 'None'
-    style_log_str = '-'.join(global_style_keys) if global_style_keys else 'None'
-    logger.info(f"正在生成提示词，概念: {concept_key}, 变体: {variation_log_str}, 全局风格: {style_log_str}")
-    print(f"正在生成提示词的步骤...")
 
-    # Initialize result dictionary
-    result = {
-    "prompt": "",
-    "aspect_ratio": None,
-    "quality": None,
-    "version": None,
-    "concept": concept_key,
-    "variations": variation_keys or [],
-    "global_styles": global_style_keys or [] # Store applied global styles
-    }
+    if not config:
+        logger.error("配置对象为空")
+        return None
 
+    if not concept_key:
+        logger.error("概念键为空")
+        return None
+
+    # 从配置中获取概念信息
     concepts = config.get("concepts", {})
     if concept_key not in concepts:
-        error_msg = f"错误：找不到创意概念 '{concept_key}'"
+        error_msg = f"错误：在配置中找不到概念 '{concept_key}'"
         logger.error(error_msg)
         print(error_msg)
         return None
@@ -69,7 +74,7 @@ def generate_prompt_text(logger, config, concept_key, variation_keys=None, globa
     concept = concepts[concept_key]
     base_prompt = concept.get("midjourney_prompt", "")
     if not base_prompt:
-        error_msg = f"错误：概念 '{concept_key}' 没有定义 'midjourney_prompt'。"
+        error_msg = f"错误：概念 '{concept_key}' 没有定义 midjourney_prompt"
         logger.error(error_msg)
         print(error_msg)
         return None
@@ -85,7 +90,17 @@ def generate_prompt_text(logger, config, concept_key, variation_keys=None, globa
 
     current_prompt_modifiers = []
 
-    # --- RESTORING ORIGINAL CODE ---
+    # 初始化结果字典
+    result = {
+        "prompt": "",
+        "concept": concept_key,
+        "variations": [],
+        "global_styles": [],
+        "aspect_ratio": aspect_ratio,
+        "quality": quality,
+        "version": version
+    }
+
     # Add concept-specific variation modifiers
     if variation_keys:
         variations = concept.get("variations", {})
@@ -131,7 +146,6 @@ def generate_prompt_text(logger, config, concept_key, variation_keys=None, globa
             if style_text:
                  current_prompt_modifiers.append(style_text)
                  logger.debug(f"添加全局风格描述 '{key}': {style_text}")
-    # --- END OF RESTORED CODE SECTION ---
 
     # Combine description and modifiers
     full_description = main_description.strip() # Ensure no trailing space
@@ -144,57 +158,33 @@ def generate_prompt_text(logger, config, concept_key, variation_keys=None, globa
         else:
             full_description = modifier_string # Should not happen if base_prompt is required
 
-    # Add technical parameters (aspect ratio, quality, version)
-    final_technical_params = []
-    # Aspect Ratio
-    aspect_ratios = config.get("aspect_ratios", {})
-    if aspect_ratio in aspect_ratios:
-        aspect_value_str = aspect_ratios[aspect_ratio]
-        final_technical_params.append(aspect_value_str)
-        result["aspect_ratio"] = aspect_value_str.replace("--ar ", "")
-        logger.debug(f"添加宽高比 '{aspect_ratio}': {aspect_value_str}")
-    else:
-        warning_msg = f"警告：找不到宽高比设置 '{aspect_ratio}'，将使用默认。"
-        logger.warning(warning_msg)
-        print(warning_msg)
-
-    # Quality
-    quality_settings = config.get("quality_settings", {})
-    if quality in quality_settings:
-        quality_value_str = quality_settings[quality]
-        final_technical_params.append(quality_value_str)
-        result["quality"] = quality_value_str.replace("--q ", "")
-        logger.debug(f"添加质量设置 '{quality}': {quality_value_str}")
-    else:
-        warning_msg = f"警告：找不到质量设置 '{quality}'，将使用默认。"
-        logger.warning(warning_msg)
-        print(warning_msg)
-
-    # Version
-    style_versions = config.get("style_versions", {})
-    if version in style_versions:
-        version_value_str = style_versions[version]
-        final_technical_params.append(version_value_str)
-        result["version"] = version_value_str.replace("--v ", "")
-        logger.debug(f"添加版本设置 '{version}': {version_value_str}")
-    else:
-        # 如果在 style_versions 中找不到，则直接使用版本号
-        version_value_str = f"--v {version.replace('v', '')}"
-        final_technical_params.append(version_value_str)
-        result["version"] = version.replace('v', '')
-        logger.debug(f"使用默认版本设置: {version_value_str}")
-
-    # If cref_url is provided and version is v6 or v7, add it to the prompt
+    # 构建技术参数使用 param_parser
+    params = {
+        'aspect_ratio': aspect_ratio,
+        'quality': quality,
+        'version': version
+    }
+    
+    # 如果提供了cref_url，添加到参数中
     if cref_url:
-        if version in ["v6", "v7"]:
-            # 将 cref_url 添加到提示词的开头
-            full_description = f"{cref_url} {full_description}"
-            logger.debug(f"添加图像参考 URL 到提示词开头: {cref_url}")
+        # 检查版本兼容性
+        version_str = str(version).lower()
+        if 'v6' in version_str or 'v7' in version_str or version in ['6', '6.1', '7']:
+            params['cref'] = cref_url
+            logger.debug(f"添加图像参考 URL: {cref_url}")
         else:
             logger.warning("图像参考 URL (--cref) 仅在 v6 或 v7 版本中支持，将被忽略。")
 
+    # 使用 param_parser 构建参数字符串
+    final_technical_params_str = build_midjourney_params_string(params)
+
     # Combine description, base technical params (if any), and final technical params
-    combined_parts = [full_description.strip()] + technical_params_from_base + final_technical_params
+    combined_parts = [full_description.strip()]
+    if technical_params_from_base:
+        combined_parts.extend(technical_params_from_base)
+    if final_technical_params_str:
+        combined_parts.append(final_technical_params_str)
+    
     result["prompt"] = " ".join(filter(None, combined_parts)).strip()
     logger.info(f"最终生成的提示词: {result['prompt']}")
     logger.info(f"提示词生成成功，长度: {len(result['prompt'])}")

@@ -13,45 +13,91 @@ from ..utils.file_handler import IMAGE_DIR
 
 logger = logging.getLogger(__name__)
 
+def is_image_path(identifier):
+    """检查标识符是否是图片文件路径"""
+    if not identifier:
+        return False
+    
+    # 检查是否包含路径分隔符或以图片扩展名结尾
+    return ('/' in identifier or '\\' in identifier or 
+            identifier.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.webp')))
+
 def handle_select(args, logger, cwd, state_dir, default_output_base, metadata_dir):
-    """处理 'select' 命令，基于 job_id 查找并切割图片。"""
+    """处理 'select' 命令，基于 job_id 或图片路径查找并切割图片。"""
     if logger is None:
         logger = logging.getLogger(__name__)
 
-    job_id = args.identifier
+    identifier = args.identifier
     select_parts = args.select_parts
     output_dir = args.output_dir
 
-    logger.info(f"开始处理 select 命令，目标 Job ID: {job_id}")
+    # 如果没有提供标识符，尝试使用最近成功的任务
+    if not identifier:
+        logger.info("未提供标识符，尝试使用最近成功的任务...")
+        identifier = read_last_succeed_job_id(logger, state_dir)
+        if not identifier:
+            error_msg = "未提供标识符且无法找到最近成功的任务 ID。"
+            logger.error(error_msg)
+            print(f"错误: {error_msg}")
+            raise typer.Exit(code=1)
+        logger.info(f"使用最近成功的任务 ID: {identifier}")
 
-    # --- Find the image file path using job_id --- #
+    logger.info(f"开始处理 select 命令，标识符: {identifier}")
+
+    # --- 判断是图片路径还是 job_id --- #
     image_file_path = None
-    job_info = find_initial_job_info(logger, job_id, metadata_dir)
+    
+    if is_image_path(identifier):
+        # 直接使用图片路径
+        logger.info(f"标识符 '{identifier}' 被识别为图片路径")
+        image_file_path = identifier
+        
+        # 如果是相对路径，尝试在当前目录和 images 目录中查找
+        if not os.path.isabs(image_file_path):
+            possible_paths = [
+                os.path.join(cwd, image_file_path),
+                os.path.join(cwd, 'images', image_file_path),
+                image_file_path  # 原始路径
+            ]
+            
+            for path in possible_paths:
+                if os.path.exists(path):
+                    image_file_path = path
+                    break
+            else:
+                error_msg = f"无法找到图片文件: {identifier}。已尝试查找路径: {possible_paths}"
+                logger.error(error_msg)
+                print(f"错误: {error_msg}")
+                raise typer.Exit(code=1)
+    else:
+        # 通过元数据查找 job_id
+        logger.info(f"标识符 '{identifier}' 被识别为 Job ID，在元数据中查找...")
+        job_info = find_initial_job_info(logger, identifier, metadata_dir)
 
-    if not job_info:
-        error_msg = f"无法在元数据中找到 Job ID '{job_id}' 的记录。"
-        logger.error(error_msg)
-        print(f"错误: {error_msg}")
-        raise typer.Exit(code=1)
+        if not job_info:
+            error_msg = f"无法在元数据中找到标识符 '{identifier}' 的记录。"
+            logger.error(error_msg)
+            print(f"错误: {error_msg}")
+            raise typer.Exit(code=1)
 
-    image_file_path = job_info.get('filepath')
+        image_file_path = job_info.get('filepath')
 
-    if not image_file_path:
-        error_msg = f"元数据中 Job ID '{job_id}' 的记录缺少有效的 'filepath'。"
-        logger.error(error_msg)
-        print(f"错误: {error_msg}")
-        raise typer.Exit(code=1)
+        if not image_file_path:
+            error_msg = f"元数据中标识符 '{identifier}' 的记录缺少有效的 'filepath'。"
+            logger.error(error_msg)
+            print(f"错误: {error_msg}")
+            raise typer.Exit(code=1)
 
-    logger.info(f"根据 Job ID '{job_id}' 在元数据中找到图片路径: {image_file_path}")
+        logger.info(f"根据标识符 '{identifier}' 在元数据中找到图片路径: {image_file_path}")
 
-    # --- Validate file existence --- #
+    # --- 验证文件存在性 --- #
     if not os.path.exists(image_file_path):
-        error_msg = f"文件系统上找不到图片文件: {image_file_path} (来自 Job ID: '{job_id}')"
+        error_msg = f"文件系统上找不到图片文件: {image_file_path}"
         logger.error(error_msg)
         print(f"错误: {error_msg}")
         raise typer.Exit(code=1)
 
-    # --- Proceed with splitting --- #
+    # --- 进行切割 --- #
     current_directory = args.output_dir or cwd  # Change to use cwd as default
     logger.info(f"正在切割图片: {image_file_path}，切割照片保存到images文件夹，选中照片保存到: {current_directory}")
     print(f"正在切割图片: {os.path.basename(image_file_path)}...")

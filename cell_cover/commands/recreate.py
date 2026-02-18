@@ -1,8 +1,5 @@
 # -*- coding: utf-8 -*-
-import os
-import uuid
 import logging
-from typing import Optional
 
 # 从 utils 导入必要的函数 - 使用统一的元数据管理模块
 from ..utils.metadata_manager import find_initial_job_info, save_image_metadata
@@ -27,10 +24,25 @@ def handle_recreate(
     metadata_dir=None
 ):
     """处理 'recreate' 命令。"""
+    # Initialize logger if None
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    # Validate required parameters
+    if not api_key:
+        logger.error("缺少必需的 API 密钥")
+        print("错误：缺少必需的 API 密钥")
+        return 1
+
+    if not metadata_dir:
+        logger.error("缺少必需的 metadata_dir 参数")
+        print("错误：缺少必需的 metadata_dir 参数")
+        return 1
+
     # Extract parameters from args object
-    identifier = args.identifier if args else None
+    identifier = args.identifier if args else None  # Required
     cref = args.cref if args else None
-    hook_url = args.hook_url if args else None
+    hook_url = args.hook_url if args else None  # Optional
 
     if not identifier:
         logger.error("缺少必需的 identifier 参数")
@@ -90,9 +102,9 @@ def handle_recreate(
     # Call Imagine API (default to relax mode for recreate)
     print("正在提交重新生成任务...") # Keep user feedback
     submit_result = call_imagine_api(
-        logger,
-        api_key,
-        {"prompt": recreate_prompt, "mode": "relax"}, # Default mode
+        logger=logger,
+        api_key=api_key,
+        prompt_data={"prompt": recreate_prompt, "model": "relax"}, # 修复: 使用 "model" 而不是 "mode"
         hook_url=hook_url,
         cref_url=cref_url
     )
@@ -127,7 +139,7 @@ def handle_recreate(
 
                         # --- 生成期望的文件名 --- #
                         try:
-                            all_tasks = load_all_metadata(logger)
+                            all_tasks = load_all_metadata(logger, metadata_dir)
                             all_tasks_index = _build_metadata_index(all_tasks)
                             expected_filename = _generate_expected_filename(logger, normalized_result, all_tasks_index)
                         except Exception as e:
@@ -139,11 +151,14 @@ def handle_recreate(
                         image_url_for_download = normalized_result.get('url')
                         if image_url_for_download:
                             logger.info("下载图像...")
-                            download_success, saved_path, image_seed = download_and_save_image(
+                            # Ensure prompt is not None
+                            prompt_text = normalized_result.get('prompt') or prompt_text_for_save
+
+                            download_success, saved_path, _ = download_and_save_image(
                                 logger,
                                 image_url_for_download, # Use normalized URL
                                 job_id, # New job ID
-                                normalized_result.get('prompt'),
+                                prompt_text,
                                 expected_filename, # Pass generated filename
                                 normalized_result.get('concept') or original_concept, # Inherit concept if needed
                                 None, # variations
@@ -169,9 +184,21 @@ def handle_recreate(
                             print(f"错误：成功轮询后未能提取重新生成任务 {job_id} 的图像 URL。")
                             # Save metadata with status indicating missing URL
                             save_image_metadata(
-                                logger, None, job_id, None, None, None,
-                                prompt_text_for_save, concept_key_for_save, None, None, None,
-                                normalized_result.get("seed") or original_seed, original_job_id,
+                                logger=logger,
+                                image_id=None,
+                                job_id=job_id,
+                                filename=None,
+                                filepath=None,
+                                url=None,
+                                prompt=prompt_text_for_save,
+                                concept=concept_key_for_save,
+                                metadata_dir=metadata_dir,
+                                variations=None,
+                                global_styles=None,
+                                components=None,
+                                seed=normalized_result.get("seed") or original_seed,
+                                original_job_id=original_job_id,
+                                action_code=None,
                                 status="polling_success_no_url_for_download"
                             )
                             return 1
@@ -182,9 +209,21 @@ def handle_recreate(
                         # Save basic metadata anyway
                         normalized_result = normalize_api_response(logger, api_data or {})
                         save_image_metadata(
-                            logger, None, job_id, None, None, None,
-                            prompt_text_for_save, concept_key_for_save, None, None, None,
-                            normalized_result.get("seed") or original_seed, original_job_id,
+                            logger=logger,
+                            image_id=None,
+                            job_id=job_id,
+                            filename=None,
+                            filepath=None,
+                            url=None,
+                            prompt=prompt_text_for_save,
+                            concept=concept_key_for_save,
+                            metadata_dir=metadata_dir,
+                            variations=None,
+                            global_styles=None,
+                            components=None,
+                            seed=normalized_result.get("seed") or original_seed,
+                            original_job_id=original_job_id,
+                            action_code=None,
                             status="polling_success_no_url"
                         )
                         return 1 # Return failure
@@ -209,19 +248,22 @@ def handle_recreate(
         else: # Webhook provided
             logger.info("提供了 Webhook URL，重新生成任务将在后台处理。")
             save_image_metadata(
-                logger,
-                None, # image_id
-                job_id_for_save,
-                None, # filename
-                None, # filepath
-                None, # url
-                prompt_text_for_save,
-                concept_key_for_save,
-                None, # variations
-                None, # styles
-                submit_result, # Save job_id as initial components/result?
-                seed_for_save,
-                original_job_id # Link to original
+                logger=logger,
+                image_id=None,
+                job_id=job_id_for_save,
+                filename=None,
+                filepath=None,
+                url=None,
+                prompt=prompt_text_for_save,
+                concept=concept_key_for_save,
+                metadata_dir=metadata_dir,
+                variations=None,
+                global_styles=None,
+                components=None,
+                seed=seed_for_save,
+                original_job_id=original_job_id,
+                action_code=None,
+                status=None
             )
             logger.info(f"已保存重新生成任务 {job_id_for_save} 的初始元数据（无图像）。")
             write_last_job_id(logger, job_id, state_dir)

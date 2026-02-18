@@ -1,8 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
+import uuid
 import logging
-from typing import List, Optional
-from PIL import Image  # 添加新导入
 
 # 从 utils 导入必要的函数 - 使用统一的元数据管理模块
 from ..utils.metadata_manager import save_image_metadata
@@ -10,7 +9,6 @@ from ..utils.metadata_manager import save_image_metadata
 # 区分 api.py (包含 normalize_api_response) 和 api_client.py (包含实际 API 调用)
 from ..utils.api import normalize_api_response
 from ..utils.api_client import call_blend_api, poll_for_result
-# from ..utils.api import call_blend_api, poll_for_result, normalize_api_response # 旧的导入方式
 
 from ..utils.image_handler import download_and_save_image, encode_image_to_base64
 from ..utils.image_metadata import load_all_metadata, _build_metadata_index
@@ -28,6 +26,24 @@ def handle_blend(
     state_dir=None
 ):
     """处理 'blend' 命令。"""
+    # Initialize logger if None
+    if logger is None:
+        logger = logging.getLogger(__name__)
+
+    # Validate required parameters
+    if not api_key:
+        logger.error("缺少必需的 API 密钥")
+        print("错误：缺少必需的 API 密钥")
+        return 1
+
+    if not crc_base_dir:
+        logger.error("缺少必需的 crc_base_dir 参数")
+        print("错误：缺少必需的 crc_base_dir 参数")
+        return 1
+
+    # Calculate metadata_dir
+    metadata_dir = os.path.join(crc_base_dir, 'metadata')
+
     # Extract parameters from args object
     image_paths = args.identifiers if args else []
     dimensions = "1024x1024"  # Default value
@@ -51,7 +67,6 @@ def handle_blend(
             print(f"错误：提供的图片路径不存在: {img_path}")
             return 1
         try:
-            img = Image.open(img_path)  # 新添加：打开图片
             encoded_string = encode_image_to_base64(img_path)  # 替换为新函数
             base64_images.append(encoded_string)
             logger.info(f"已压缩并编码图片: {img_path}")
@@ -99,7 +114,7 @@ def handle_blend(
 
                         # --- 生成期望的文件名 --- #
                         try:
-                            all_tasks = load_all_metadata(logger)
+                            all_tasks = load_all_metadata(logger, metadata_dir)
                             all_tasks_index = _build_metadata_index(all_tasks)
                             # Blend tasks need special handling for filename? Assuming 'blend' concept for now.
                             normalized_result['job_id'] = job_id # Ensure job_id
@@ -110,7 +125,7 @@ def handle_blend(
                             expected_filename = f"blend_{job_id}.png"
                         # ---------------------- #
 
-                        download_success, saved_path, image_seed = download_and_save_image(
+                        download_success, saved_path, _ = download_and_save_image(
                             logger,
                             image_url,
                             job_id,
@@ -142,9 +157,22 @@ def handle_blend(
                         # Save basic metadata anyway
                         normalized_result = normalize_api_response(logger, api_data or {})
                         save_image_metadata(
-                            logger, None, job_id, None, None, None,
-                            prompt_text_for_save, "blend", None, None, None,
-                            normalized_result.get("seed"), None, status="polling_success_no_url"
+                            logger=logger,
+                            image_id=str(uuid.uuid4()),
+                            job_id=job_id,
+                            filename=None,
+                            filepath=None,
+                            url=None,
+                            prompt=prompt_text_for_save,
+                            concept="blend",
+                            metadata_dir=metadata_dir,
+                            variations=None,
+                            global_styles=None,
+                            components=None,
+                            seed=normalized_result.get("seed"),
+                            original_job_id=None,
+                            action_code=None,
+                            status="polling_success_no_url"
                         )
                         return 1 # Return failure
                 elif final_status == "FAILED":
@@ -155,9 +183,22 @@ def handle_blend(
                     # Save basic metadata for failed attempt
                     normalized_result = normalize_api_response(logger, api_data or {})
                     save_image_metadata(
-                        logger, None, job_id, None, None, None,
-                        prompt_text_for_save, "blend", None, None, None,
-                        normalized_result.get("seed"), None, status=f"polling_failed: {final_status}"
+                        logger=logger,
+                        image_id=None,
+                        job_id=job_id,
+                        filename=None,
+                        filepath=None,
+                        url=None,
+                        prompt=prompt_text_for_save,
+                        concept="blend",
+                        metadata_dir=metadata_dir,
+                        variations=None,
+                        global_styles=None,
+                        components=None,
+                        seed=normalized_result.get("seed"),
+                        original_job_id=None,
+                        action_code=None,
+                        status=f"polling_failed: {final_status}"
                     )
                     return 1 # Return failure
                 else:
@@ -171,8 +212,21 @@ def handle_blend(
                 print(f"错误：轮询混合任务 {job_id} 失败或超时。")
                 # Save basic metadata for failed attempt
                 save_image_metadata(
-                    logger, None, job_id, None, None, None,
-                    prompt_text_for_save, "blend", None, None, None, None, None,
+                    logger=logger,
+                    image_id=None,
+                    job_id=job_id,
+                    filename=None,
+                    filepath=None,
+                    url=None,
+                    prompt=prompt_text_for_save,
+                    concept="blend",
+                    metadata_dir=metadata_dir,
+                    variations=None,
+                    global_styles=None,
+                    components=None,
+                    seed=None,
+                    original_job_id=None,
+                    action_code=None,
                     status="polling_timeout_or_error"
                 )
                 return 1 # Return failure
@@ -180,15 +234,22 @@ def handle_blend(
             logger.info("提供了 Webhook URL，混合任务将在后台处理。")
             # Save initial metadata (status will be updated by webhook handler later)
             save_image_metadata(
-                logger,
-                None, # No image_id yet
-                job_id_for_save,
-                None, # filename
-                None, # filepath
-                None, # url
-                prompt_text_for_save,
-                "blend",
-                None, None, None, None, None # variations, styles, components, seed, original_job_id
+                logger=logger,
+                image_id=None,
+                job_id=job_id_for_save,
+                filename=None,
+                filepath=None,
+                url=None,
+                prompt=prompt_text_for_save,
+                concept="blend",
+                metadata_dir=metadata_dir,
+                variations=None,
+                global_styles=None,
+                components=None,
+                seed=None,
+                original_job_id=None,
+                action_code=None,
+                status=None
             )
             logger.info(f"已保存混合任务 {job_id_for_save} 的初始元数据（无图像）。")
             return 0

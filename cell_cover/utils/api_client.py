@@ -304,8 +304,7 @@ def call_action_api(
     }
     if hook_url:
         payload["hookUrl"] = hook_url
-    if mode:
-        payload["mode"] = mode
+    # 注意：Action 端点不支持 mode 参数，已移除
 
     # Log the final payload before sending
     logger.debug(f"发送到 /action 的 Payload: {json.dumps(payload)}")
@@ -433,9 +432,40 @@ def check_prompt(
 
     try:
         response = requests.post(endpoint, headers=headers, json=payload, timeout=30)
-        response.raise_for_status()
-        result = response.json()
+        
+        # 记录详细的请求和响应信息用于调试
+        logger.debug(f"请求头: {headers}")
+        logger.debug(f"请求体: {payload}")
+        logger.debug(f"响应状态码: {response.status_code}")
+        logger.debug(f"响应内容: {response.text}")
+        
+        # 先尝试解析响应，即使状态码不是200也可能有有用的错误信息
+        try:
+            result = response.json()
+            logger.debug(f"解析后的响应: {result}")
+        except json.JSONDecodeError:
+            logger.error(f"无法解析API响应为JSON: {response.text}")
+            print(f"错误：API响应格式无效 - {response.text[:200]}")
+            return False
+        
+        # 检查HTTP状态码
+        if response.status_code != 200:
+            error_details = result.get("message", "未知错误") if isinstance(result, dict) else str(result)
+            if response.status_code == 400:
+                logger.error(f"提示词检查请求格式错误 (400): {error_details}")
+                print(f"错误：请求格式错误 - {error_details}")
+            elif response.status_code == 401:
+                logger.error(f"API密钥认证失败 (401): {error_details}")
+                print(f"错误：API密钥无效或未授权 - {error_details}")
+            elif response.status_code == 403:
+                logger.error(f"API访问被禁止 (403): {error_details}")
+                print(f"错误：API访问被禁止 - {error_details}")
+            else:
+                logger.error(f"提示词检查请求失败 ({response.status_code}): {error_details}")
+                print(f"错误：提示词检查请求失败 ({response.status_code}) - {error_details}")
+            return False
 
+        # 检查API级别的状态
         if result.get("status") == "SUCCESS":
             logger.info("提示词检查通过")
             return True

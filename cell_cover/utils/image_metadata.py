@@ -246,6 +246,11 @@ def find_initial_job_info(logger, identifier: str, metadata_dir: str):
     Returns:
         Optional[dict]: 找到的任务信息，或 None。
     """
+    # 检查标识符是否为空或None
+    if not identifier:
+        logger.error("标识符为空或None，无法执行查找。")
+        return None
+    
     metadata_filename = "images_metadata.json"
     full_filepath = os.path.join(metadata_dir, metadata_filename)
     logger.info(f"在 {full_filepath} 中查找标识符 '{identifier}' 对应的任务...")
