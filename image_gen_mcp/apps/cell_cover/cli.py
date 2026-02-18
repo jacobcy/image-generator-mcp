@@ -29,8 +29,8 @@ except ImportError:
 
 from typing import Optional, List
 
-from .utils.config import load_config, get_api_key
-from .utils.log import setup_logging
+from image_gen_mcp.core.config import load_config, get_api_key
+from image_gen_mcp.core.logging import setup_logging
 from .constants import ACTION_CHOICES
 
 from .commands.create import handle_create

@@ -14,6 +14,17 @@ import logging # Import logging
 import copy # Import copy for deep merging
 from typing import Optional
 
+
+def _deep_merge(source: dict, destination: dict) -> dict:
+    """Recursively merges source dict into destination dict."""
+    for key, value in source.items():
+        if isinstance(value, dict):
+            node = destination.setdefault(key, {})
+            _deep_merge(value, node)
+        else:
+            destination[key] = value
+    return destination
+
 # Note: logger needs to be passed into the functions
 
 def load_config(logger: logging.Logger, default_config_path: str, user_config_path: str) -> Optional[dict]:
@@ -36,15 +47,15 @@ def load_config(logger: logging.Logger, default_config_path: str, user_config_pa
             logger.info(f"默认配置文件加载成功: {default_config_path}")
     except FileNotFoundError:
         logger.critical(f"错误：默认配置文件未找到 - {default_config_path}")
-        print(f"错误：默认配置文件未找到 - {default_config_path}")
+        logger.error(f"错误：默认配置文件未找到 - {default_config_path}")
         return None # Cannot proceed without default config
     except json.JSONDecodeError as e:
         logger.critical(f"错误：默认配置文件格式错误 - {default_config_path} - {e}")
-        print(f"错误：默认配置文件格式错误 - {default_config_path} - {e}")
+        logger.error(f"错误：默认配置文件格式错误 - {default_config_path} - {e}")
         return None # Cannot proceed with invalid default config
     except Exception as e:
         logger.critical(f"错误：加载默认配置文件时出错 - {default_config_path} - {e}")
-        print(f"错误：加载默认配置文件时出错 - {default_config_path} - {e}")
+        logger.error(f"错误：加载默认配置文件时出错 - {default_config_path} - {e}")
         return None # Cannot proceed
 
     # 2. Load user config if it exists and merge/override
@@ -75,16 +86,17 @@ def load_config(logger: logging.Logger, default_config_path: str, user_config_pa
 
         except json.JSONDecodeError as e:
             logger.warning(f"警告：用户配置文件格式错误 - {user_config_path} - {e}。将忽略用户配置。")
-            print(f"警告：用户配置文件格式错误 - {user_config_path} - {e}。将忽略用户配置。")
+            logger.warning(f"警告：用户配置文件格式错误 - {user_config_path} - {e}。将忽略用户配置。")
         except Exception as e:
             logger.warning(f"警告：加载用户配置文件时出错 - {user_config_path} - {e}。将忽略用户配置。")
-            print(f"警告：加载用户配置文件时出错 - {user_config_path} - {e}。将忽略用户配置。")
+            logger.warning(f"警告：加载用户配置文件时出错 - {user_config_path} - {e}。将忽略用户配置。")
     else:
         logger.debug(f"用户配置文件未找到: {user_config_path}")
 
-    # Log final concept count
+
+    # Log final config load
     if config:
-        logger.info(f"最终配置包含 {len(config.get('concepts', {}))} 个概念")
+        logger.info(f"配置加载完成")
 
     return config
 
@@ -115,10 +127,10 @@ def get_api_key(logger, script_dir_for_env_fallback=None, service="ttapi"):
 
     # Fallback to .env in project root
     try:
-        # Determine project root (assuming this file is utils/config.py)
-        utils_dir = os.path.dirname(os.path.abspath(__file__))
-        cell_cover_dir = os.path.dirname(utils_dir)
-        project_root = os.path.dirname(cell_cover_dir)
+        # Determine project root (this file is in image_gen_mcp/core/config.py)
+        core_dir = os.path.dirname(os.path.abspath(__file__))
+        package_dir = os.path.dirname(core_dir)
+        project_root = os.path.dirname(package_dir)
         env_path = os.path.join(project_root, ".env")
         source = f"项目根目录的 {env_path} 文件"
         logger.info(f"环境变量 TTAPI_API_KEY 未设置，尝试从 {source} 加载。")
@@ -145,8 +157,8 @@ def get_api_key(logger, script_dir_for_env_fallback=None, service="ttapi"):
     if not api_key:
         error_msg = f"错误：未设置 {env_var_name} 环境变量，且在项目根目录 .env 文件中也未找到。"
         logger.critical(error_msg)
-        print(error_msg)
-        print(f"请设置环境变量 {env_var_name}=<your_api_key> 或在项目根目录 .env 文件中添加该变量 ({service_name} 服务)。")
+        logger.critical(error_msg)
+        logger.critical(f"请设置环境变量 {env_var_name}=<your_api_key> 或在项目根目录 .env 文件中添加该变量 ({service_name} 服务)。")
         # Returning None, let the caller handle exit
         return None
 

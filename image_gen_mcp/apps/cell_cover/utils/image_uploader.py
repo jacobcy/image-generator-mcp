@@ -7,7 +7,7 @@ from datetime import datetime
 
 # Import get_api_key from the config module in the parent directory
 # Assume get_api_key can handle different service names
-from .config import get_api_key
+from image_gen_mcp.core.config import get_api_key
 
 # Setup logger if used standalone, otherwise rely on parent logger
 logger = logging.getLogger(__name__)

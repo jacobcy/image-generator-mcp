@@ -155,7 +155,8 @@ def handle_create(
             return 1
         concept_prompt = config["concepts"][concept].get("midjourney_prompt", "")
         # 从概念提示词中移除参数，只保留描述性文本
-        concept_prompt = re.sub(r'--\w+(?:\s+[^\s--]+)?', '', concept_prompt).strip()
+        # 使用负向先行断言确保不匹配下一个参数（以 -- 开头）
+        concept_prompt = re.sub(r'--\w+(?:\s+(?!-)\S+)?', '', concept_prompt).strip()
         base_prompt = re.sub(r'\s+', ' ', concept_prompt).strip()
         concept_key_for_save = concept
         concept_for_metadata = concept # 记录使用的概念
@@ -185,7 +186,7 @@ def handle_create(
              variation_text = variations.get(variation)
              if variation_text:
                  # 从变体文本中移除参数，只保留描述性文本
-                 cleaned_variation_text = re.sub(r'--\w+(?:\s+[^\s--]+)?', '', variation_text).strip()
+                 cleaned_variation_text = re.sub(r'--\w+(?:\s+(?!-)\S+)?', '', variation_text).strip()
                  cleaned_variation_text = re.sub(r'\s+', ' ', cleaned_variation_text).strip()
                  base_prompt += " " + cleaned_variation_text
                  logger.info(f"应用了概念 '{concept}' 的变体: {variation}")

@@ -21,20 +21,19 @@ from typing import Dict, Any, List
 from tqdm import tqdm
 import re
 
-# 添加父目录到PATH，以便导入cell_cover模块
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent.parent))
 
-from cell_cover.utils.metadata_manager import (
+from image_gen_mcp.apps.cell_cover.utils.metadata_manager import (
     load_all_metadata,
     # update_job_metadata # 不再使用逐条更新
 )
 # 需要导入底层的保存函数
-from cell_cover.utils.image_metadata import _save_metadata_file, _build_metadata_index, trace_job_history
-from cell_cover.utils.api import normalize_api_response
-# from cell_cover.utils.filesystem_utils import METADATA_FILENAME, META_DIR, IMAGE_DIR, sanitize_filename # Commented out due to ImportError
-from cell_cover.utils.filesystem_utils import sanitize_filename # Keep this one
-from cell_cover.utils.file_handler import MAX_FILENAME_LENGTH
-from cell_cover.utils.file_handler import _generate_expected_filename
+from image_gen_mcp.apps.cell_cover.utils.image_metadata import _save_metadata_file, _build_metadata_index, trace_job_history
+from image_gen_mcp.apps.cell_cover.utils.api import normalize_api_response
+# from image_gen_mcp.apps.cell_cover.utils.filesystem_utils import METADATA_FILENAME, META_DIR, IMAGE_DIR, sanitize_filename # Commented out due to ImportError
+from image_gen_mcp.apps.cell_cover.utils.filesystem_utils import sanitize_filename # Keep this one
+from image_gen_mcp.apps.cell_cover.utils.file_handler import MAX_FILENAME_LENGTH
+from image_gen_mcp.apps.cell_cover.utils.file_handler import _generate_expected_filename
 
 # 设置日志
 logging.basicConfig(
@@ -444,7 +443,7 @@ def main():
     output_dir = os.path.join(crc_base_dir, 'output')
 
     # Ensure directories exist if run standalone
-    from cell_cover.utils.filesystem_utils import ensure_directories # Local import for standalone
+    from image_gen_mcp.apps.cell_cover.utils.filesystem_utils import ensure_directories # Local import for standalone
     if not ensure_directories(logger, metadata_dir, output_dir):
         print(f"错误: 无法创建必要的目录 {metadata_dir} 或 {output_dir}")
         return 1

@@ -26,7 +26,7 @@ from ..utils.filesystem_utils import (
 # download_and_save_image now handles saving metadata via metadata_manager
 from ..utils.image_handler import download_and_save_image
 from ..utils.image_metadata import load_all_metadata, _build_metadata_index # Added load & build
-from ..utils.config import get_api_key # Import from config instead
+from image_gen_mcp.core.config import get_api_key
 from ..utils.metadata_manager import _generate_expected_filename # Added import
 
 logger = logging.getLogger(__name__)

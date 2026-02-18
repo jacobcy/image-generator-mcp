@@ -14,13 +14,13 @@ import os
 from typing import Optional, Dict, Any, List, Tuple
 
 import requests
-from ..utils.image_handler import encode_image_to_base64  # 假设此函数已存在或需添加
+from ..utils.image_handler import encode_image_to_base64
 
 # --- API Constants ---
 TTAPI_BASE_URL = "https://api.ttapi.io/midjourney/v1"
-POLL_INTERVAL_SECONDS = 5   # Interval between polling attempts
-FETCH_TIMEOUT_SECONDS = 300 # Timeout for the OVERALL polling loop (in seconds)
-MAX_POLL_ATTEMPTS = 60      # Max attempts (not currently used for overall timeout)
+POLL_INTERVAL_SECONDS = 5
+FETCH_TIMEOUT_SECONDS = 300
+MAX_POLL_ATTEMPTS = 60
 
 def _handle_api_error(logger: logging.Logger, response: requests.Response, context: str = "API 请求") -> None:
     """统一处理 API 请求错误"""
@@ -46,7 +46,7 @@ def call_imagine_api(
 
     Args:
         logger: The logging object.
-        prompt_data: Dictionary containing the 'prompt' and potentially 'mode'.
+        prompt_data: Dictionary containing 'prompt' and potentially 'mode'.
         api_key: Your TTAPI API Key.
         hook_url: Optional webhook URL for async callback.
         notify_id: Optional custom ID for webhook callback.
@@ -61,10 +61,8 @@ def call_imagine_api(
         "Content-Type": "application/json"
     }
 
-    # Base payload from prompt_data
     payload = prompt_data.copy()
 
-    # Add optional parameters
     if hook_url:
         payload['hookUrl'] = hook_url
     if notify_id:
@@ -304,14 +302,11 @@ def call_action_api(
     }
     if hook_url:
         payload["hookUrl"] = hook_url
-    # 注意：Action 端点不支持 mode 参数，已移除
 
-    # Log the final payload before sending
     logger.debug(f"发送到 /action 的 Payload: {json.dumps(payload)}")
 
     try:
         response = requests.post(endpoint, headers=headers, json=payload, timeout=30)
-        # Check for HTTP errors
         response.raise_for_status()
         result = response.json()
 
@@ -324,10 +319,9 @@ def call_action_api(
                 logger.error("API 报告成功但未返回新任务 ID")
                 return None
         else:
-            # Handle application-level failure reported by API
             error_message = result.get("message", "未知错误")
             logger.error(f"操作 {action} 失败 (API Status != SUCCESS): {error_message}")
-            logger.debug(f"Full API failure response: {result}") # Log full response on failure
+            logger.debug(f"Full API failure response: {result}")
             print(f"错误：操作 {action} 失败 - {error_message}")
             return None
 
@@ -336,19 +330,16 @@ def call_action_api(
         print(f"错误：调用 /action API 超时。")
         return None
     except requests.exceptions.RequestException as e:
-        # Log detailed HTTP error if response is available
         error_msg = f"调用 /action API 时发生网络错误: {e}"
         if e.response is not None:
             error_msg += f" | Status Code: {e.response.status_code}"
             try:
-                # Try to get JSON error details
                 response_json = e.response.json()
                 error_msg += f" | Response: {json.dumps(response_json)}"
             except json.JSONDecodeError:
-                # Fallback to raw text if not JSON
                 error_msg += f" | Response: {e.response.text}"
         logger.error(error_msg)
-        print(f"错误：API 请求失败，请检查日志获取详细信息。 ({e})") # User-friendly message
+        print(f"错误：API 请求失败，请检查日志获取详细信息。 ({e})")
         return None
     except json.JSONDecodeError as e:
         logger.error(f"无法解析 /action API 响应 (非 JSON): {e}")
@@ -432,14 +423,11 @@ def check_prompt(
 
     try:
         response = requests.post(endpoint, headers=headers, json=payload, timeout=30)
-        
-        # 记录详细的请求和响应信息用于调试
         logger.debug(f"请求头: {headers}")
         logger.debug(f"请求体: {payload}")
         logger.debug(f"响应状态码: {response.status_code}")
         logger.debug(f"响应内容: {response.text}")
-        
-        # 先尝试解析响应，即使状态码不是200也可能有有用的错误信息
+
         try:
             result = response.json()
             logger.debug(f"解析后的响应: {result}")
@@ -447,8 +435,7 @@ def check_prompt(
             logger.error(f"无法解析API响应为JSON: {response.text}")
             print(f"错误：API响应格式无效 - {response.text[:200]}")
             return False
-        
-        # 检查HTTP状态码
+
         if response.status_code != 200:
             error_details = result.get("message", "未知错误") if isinstance(result, dict) else str(result)
             if response.status_code == 400:
@@ -465,7 +452,6 @@ def check_prompt(
                 print(f"错误：提示词检查请求失败 ({response.status_code}) - {error_details}")
             return False
 
-        # 检查API级别的状态
         if result.get("status") == "SUCCESS":
             logger.info("提示词检查通过")
             return True
@@ -525,11 +511,9 @@ def call_blend_api(
         payload["getUImages"] = get_u_images
 
     logger.info(f"向 {endpoint} 发送 Blend 请求 ({len(img_base64_array)} 张图片)")
-    # Avoid logging the full base64 array for brevity and security
     logger.debug(f"Blend Payload (excluding base64): {{dimensions: {dimensions}, mode: {mode}, hookUrl: {hook_url}, getUImages: {get_u_images}}}")
 
     try:
-        # Increase timeout slightly for potential larger uploads
         response = requests.post(endpoint, headers=headers, json=payload, timeout=60)
         response.raise_for_status()
         result = response.json()
@@ -553,12 +537,11 @@ def call_blend_api(
         print(f"错误：调用 /blend API 超时。")
         return None
     except requests.exceptions.RequestException as e:
-        # Log detailed error if possible
         error_context = str(e)
         try:
             error_context += f" - Response: {response.text}"
-        except:
-             pass # Ignore if response doesn't exist
+        except AttributeError:
+            pass  # response may not exist if request never completed
         logger.error(f"调用 /blend API 时发生网络错误: {error_context}")
         print(f"错误：Blend API 请求失败 - {e}")
         return None
@@ -602,8 +585,8 @@ def call_describe_api(
         logger.info(f"使用提供的 URL 进行 Describe: {image_path_or_url}")
     elif os.path.exists(image_path_or_url):
         try:
-            encoded_string = encode_image_to_base64(image_path_or_url)  # 替换为新函数
-            mime_type = 'image/png'  # 或从新函数获取
+            encoded_string = encode_image_to_base64(image_path_or_url)
+            mime_type = 'image/png'
             payload['base64'] = encoded_string
             logger.info(f"已编码本地图片用于 Describe: {image_path_or_url}")
         except Exception as e:
@@ -617,13 +600,14 @@ def call_describe_api(
 
     if hook_url:
         payload["hookUrl"] = hook_url
-    payload["timeout"] = timeout # Add timeout to payload
+    payload["timeout"] = timeout
 
     logger.info(f"向 {endpoint} 发送 Describe 请求")
-    logger.debug(f"Describe Payload (excluding base64): { {k: v for k, v in payload.items() if k != 'base64'} }")
+    debug_payload = {k: v for k, v in payload.items() if k != "base64"}
+    logger.debug(f"Describe Payload (excluding base64): {repr(debug_payload)}")
 
     try:
-        response = requests.post(endpoint, headers=headers, json=payload, timeout=timeout + 10) # Add buffer to request timeout
+        response = requests.post(endpoint, headers=headers, json=payload, timeout=timeout + 10)
         response.raise_for_status()
         result = response.json()
 
@@ -647,8 +631,10 @@ def call_describe_api(
         return None
     except requests.exceptions.RequestException as e:
         error_context = str(e)
-        try: error_context += f" - Response: {response.text}"
-        except: pass
+        try:
+            error_context += f" - Response: {response.text}"
+        except AttributeError:
+            pass  # response may not exist if request never completed
         logger.error(f"调用 /describe API 时发生网络错误: {error_context}")
         print(f"错误：Describe API 请求失败 - {e}")
         return None

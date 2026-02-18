@@ -23,7 +23,7 @@ from .api import normalize_api_response
 from .api_client import poll_for_result
 # from .api import poll_for_result, normalize_api_response # 旧的导入方式
 
-from .config import get_api_key
+from image_gen_mcp.core.config import get_api_key
 from .filesystem_utils import (
     # META_DIR, METADATA_FILENAME, IMAGE_DIR, # Removed
     ensure_directories, write_last_succeed_job_id,

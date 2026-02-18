@@ -30,7 +30,7 @@ from .image_metadata import (
     trace_job_history,
     remove_job_metadata
 )
-from .log import setup_logging
+from image_gen_mcp.core.logging import setup_logging
 # 区分 api.py (包含 normalize_api_response) 和 api_client.py (包含实际 API 调用)
 from .api import normalize_api_response
 from .api_client import poll_for_result

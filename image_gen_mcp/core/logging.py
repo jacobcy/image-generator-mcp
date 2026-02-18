@@ -100,7 +100,7 @@ def setup_logging(log_dir, verbose=False):
         return logger
 
     # Construct log file path
-    log_file = os.path.join(log_dir, f"cover_generator_{datetime.now().strftime('%Y%m%d')}.log")
+    log_file = os.path.join(log_dir, f"image_gen_mcp_{datetime.now().strftime('%Y%m%d')}.log")
 
     # Create and add file handler (always use plain formatter)
     try:
